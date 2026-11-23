@@ -161,10 +161,13 @@ class MultiCloneProjectVerificationTests(unittest.TestCase):
         self.assertIn("ellekit", fields.get("Depends", ""))
         self.assertTrue((ROOT / "Packaging/dependencies.txt").is_file())
 
-    # 7. Simulated DEB packaging + Sileo APT repo indexing check (no fake .deb stored in Releases/)
+    # 7. Simulated DEB packaging + Sileo APT repo indexing check
     def test_07_deb_repo_indexer_and_no_fake_release_deb(self):
-        # Ensure no fake .deb was committed in Releases/ without real compilation
-        self.assertFalse((ROOT / "Releases/MultiClone.deb").exists(), "Must not ship an uncompiled/fake MultiClone.deb")
+        # If Releases/MultiClone.deb exists locally, it must be a real compiled ar/deb archive with SHA256SUMS.txt
+        rel_deb = ROOT / "Releases/MultiClone.deb"
+        if rel_deb.exists():
+            self.assertTrue(rel_deb.read_bytes().startswith(b"!<arch>\n"), "MultiClone.deb must be a valid ar/deb archive")
+            self.assertTrue((ROOT / "Releases/SHA256SUMS.txt").is_file(), "Real MultiClone.deb must be accompanied by SHA256SUMS.txt")
 
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)

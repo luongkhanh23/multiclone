@@ -10,5 +10,5 @@ Depends: firmware (>= 15.0), mobilesubstrate (>= 0.9.5000) | ellekit
 Suggests: ldid
 Conflicts: com.multiclone.core
 Replaces: com.multiclone.core
-SileoDepiction: https://luongkhanh23.github.io/MultiClone/depictions/com.multiclone.manager.json
-Icon: https://luongkhanh23.github.io/MultiClone/CydiaIcon.png
+SileoDepiction: https://luongkhanh23.github.io/multiclone/depictions/com.multiclone.manager.json
+Icon: https://luongkhanh23.github.io/multiclone/CydiaIcon.png

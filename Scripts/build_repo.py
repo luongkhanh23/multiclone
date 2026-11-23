@@ -72,12 +72,23 @@ def build_repository(pkg_dir: Path, repo_dir: Path, origin: str, label: str, des
 
     deb_sources = sorted(p for p in pkg_dir.glob("*.deb") if p.is_file()) if pkg_dir.exists() else []
     stanzas: list[str] = []
+    seen_keys: set[tuple[str, str, str]] = set()
 
     for src in deb_sources:
+        control_text = _read_deb_control(src)
+        fields = {}
+        for ln in control_text.splitlines():
+            if ":" in ln:
+                k, v = ln.split(":", 1)
+                fields[k.strip()] = v.strip()
+        pkg_key = (fields.get("Package", src.name), fields.get("Version", ""), fields.get("Architecture", ""))
+        if pkg_key in seen_keys:
+            continue
+        seen_keys.add(pkg_key)
+
         dest = debs_dir / src.name
         if src.resolve() != dest.resolve():
             shutil.copy2(src, dest)
-        control_text = _read_deb_control(dest)
         raw = dest.read_bytes()
         md5, sha1, sha256 = _hashes_for_bytes(raw)
         rel_filename = f"debs/{dest.name}"

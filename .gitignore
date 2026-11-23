@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 *.orig
 Releases/*.log.tmp
+Releases/*.deb
+Releases/SHA256SUMS.txt
+Releases/build.log
+Repository/debs/*.deb
