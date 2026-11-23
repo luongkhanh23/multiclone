@@ -20,26 +20,35 @@ echo "[Verify] Checking strict rootless filesystem layout (/var/jb/ only)..."
 CONTENTS="$(dpkg-deb -c "$DEB_PATH")"
 echo "$CONTENTS"
 
-BAD_PATHS="$(echo "$CONTENTS" | awk '{print $6}' | grep -vE '^\./$|^\./var/$|^\./var/jb/' || true)"
+# Extract full path column (preserving spaces in paths like 'Application Support')
+PATHS="$(echo "$CONTENTS" | sed -E 's/^([^ ]+ +){5}//')"
+
+BAD_PATHS="$(echo "$PATHS" | grep -vE '^(\./?)?$|^(\./)?var/?$|^(\./)?var/jb(/.*)?$' || true)"
 if [ -n "$BAD_PATHS" ]; then
     echo "ERROR: Non-rootless paths detected outside /var/jb/:" >&2
     echo "$BAD_PATHS" >&2
     exit 1
 fi
 
-# Confirm both SpringBoard tweak and Manager app are present
-echo "$CONTENTS" | grep -q "var/jb/Library/MobileSubstrate/DynamicLibraries/MultiClone.dylib" || {
-    echo "ERROR: Missing MultiClone.dylib in rootless DynamicLibraries" >&2
+if echo "$PATHS" | grep -q "var/jb/var/jb"; then
+    echo "ERROR: Duplicate nested var/jb/var/jb path detected!" >&2
     exit 1
-}
-echo "$CONTENTS" | grep -q "var/jb/Library/MobileSubstrate/DynamicLibraries/MultiClone.plist" || {
-    echo "ERROR: Missing MultiClone.plist filter" >&2
-    exit 1
-}
-echo "$CONTENTS" | grep -q "var/jb/Applications/MultiCloneManager.app/MultiCloneManager" || {
-    echo "ERROR: Missing MultiCloneManager.app executable" >&2
-    exit 1
-}
+fi
+
+# Confirm SpringBoard tweak, Manager app, Info.plist, icons, and defaults are present
+for req in \
+    "var/jb/Library/MobileSubstrate/DynamicLibraries/MultiClone.dylib" \
+    "var/jb/Library/MobileSubstrate/DynamicLibraries/MultiClone.plist" \
+    "var/jb/Applications/MultiCloneManager.app/MultiCloneManager" \
+    "var/jb/Applications/MultiCloneManager.app/Info.plist" \
+    "var/jb/Applications/MultiCloneManager.app/AppIcon60x60@2x.png" \
+    "var/jb/Applications/MultiCloneManager.app/AppIcon60x60@3x.png" \
+    "var/jb/Library/Application Support/MultiClone/auto-close-defaults.plist"; do
+    echo "$PATHS" | grep -Fq "$req" || {
+        echo "ERROR: Missing required rootless payload file: $req" >&2
+        exit 1
+    }
+done
 
 # Verify Mach-O slices if lipo or file is available
 TMP_EXTRACT="$(mktemp -d)"

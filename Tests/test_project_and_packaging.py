@@ -201,10 +201,12 @@ class MultiCloneProjectVerificationTests(unittest.TestCase):
     # 8. Rootless structure verification
     def test_08_rootless_structure_and_scripts(self):
         root_mk = (ROOT / "Makefile").read_text(encoding="utf-8")
-        self.assertIn("$(THEOS_STAGING_DIR)$(THEOS_PACKAGE_INSTALL_PREFIX)", root_mk)
+        self.assertIn("$(THEOS_STAGING_DIR)/Applications/MultiCloneManager.app/Info.plist", root_mk)
+        self.assertNotIn("$(THEOS_STAGING_DIR)$(THEOS_PACKAGE_INSTALL_PREFIX)", root_mk, "Avoid double /var/jb/var/jb staging")
         verify_sh = (ROOT / "Scripts/verify_package.sh").read_text(encoding="utf-8")
         self.assertIn("var/jb/Library/MobileSubstrate/DynamicLibraries/MultiClone.dylib", verify_sh)
         self.assertIn("var/jb/Applications/MultiCloneManager.app/MultiCloneManager", verify_sh)
+        self.assertIn("var/jb/Applications/MultiCloneManager.app/Info.plist", verify_sh)
 
         # Icons referenced by Makefile must exist and be valid PNGs
         for icon in ["Resources/Icons/AppIcon60x60@2x.png", "Resources/Icons/AppIcon60x60@3x.png", "Repository/CydiaIcon.png"]:
