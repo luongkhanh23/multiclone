@@ -51,4 +51,21 @@
     return YES;
 }
 
+- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+    (void)app; (void)options;
+    if (!url.isFileURL) return NO;
+    UITabBarController *tab = (UITabBarController *)self.window.rootViewController;
+    if ([tab isKindOfClass:[UITabBarController class]] && tab.viewControllers.count > 1) {
+        UINavigationController *nav = tab.viewControllers[1];
+        if ([nav isKindOfClass:[UINavigationController class]] &&
+            [nav.viewControllers.firstObject isKindOfClass:[MCCreateCloneViewController class]]) {
+            tab.selectedIndex = 1;
+            MCCreateCloneViewController *createVC = (MCCreateCloneViewController *)nav.viewControllers.firstObject;
+            [createVC loadIPAFileAtPath:url.path];
+            return YES;
+        }
+    }
+    return NO;
+}
+
 @end

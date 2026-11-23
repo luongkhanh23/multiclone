@@ -254,11 +254,23 @@
     } else if (self.filteredInstalled.count > 0) {
         MCInstalledAppInfo *app = self.filteredInstalled[indexPath.row];
         UIAlertController *sheet = [UIAlertController alertControllerWithTitle:app.displayName
-                                                                       message:[NSString stringWithFormat:@"Bundle ID: %@\nPhiên bản: %@\n\nĐể tạo bản clone, hãy nhập tệp IPA hợp lệ của ứng dụng này tại tab Tạo Clone.", app.bundleID, app.shortVersion ?: @"N/A"]
+                                                                       message:[NSString stringWithFormat:@"Bundle ID: %@\nPhiên bản: %@\n\nChọn trích xuất trực tiếp từ ứng dụng gốc để kiểm tra DRM và tạo 1, 5, 10 bản clone đánh số (1_%@, 2_%@...).", app.bundleID, app.shortVersion ?: @"N/A", app.displayName.lowercaseString, app.displayName.lowercaseString]
                                                                 preferredStyle:UIAlertControllerStyleAlert];
-        [sheet addAction:[UIAlertAction actionWithTitle:@"Đi tới Tạo Clone" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Trích xuất & Nhân bản ứng dụng này" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
             (void)a;
-            [self mc_openCreateClone];
+            if (self.tabBarController && self.tabBarController.viewControllers.count > 1) {
+                UINavigationController *createNav = self.tabBarController.viewControllers[1];
+                if ([createNav isKindOfClass:[UINavigationController class]] &&
+                    [createNav.viewControllers.firstObject isKindOfClass:[MCCreateCloneViewController class]]) {
+                    MCCreateCloneViewController *createVC = (MCCreateCloneViewController *)createNav.viewControllers.firstObject;
+                    self.tabBarController.selectedIndex = 1;
+                    [createVC loadInstalledAppInfo:app];
+                    return;
+                }
+            }
+            MCCreateCloneViewController *vc = [[MCCreateCloneViewController alloc] init];
+            [vc loadInstalledAppInfo:app];
+            [self.navigationController pushViewController:vc animated:YES];
         }]];
         [sheet addAction:[UIAlertAction actionWithTitle:@"Đóng" style:UIAlertActionStyleCancel handler:nil]];
         [self presentViewController:sheet animated:YES completion:nil];

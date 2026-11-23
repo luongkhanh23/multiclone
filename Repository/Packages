@@ -1,0 +1,20 @@
+Package: com.multiclone.manager
+Name: MultiClone
+Description: Rootless iOS 18.2 / Dopamine multi-instance manager with IPA inspector (Mach-O/DRM/entitlements), isolated clone configurations, Dark Mode Manager app, and safe opt-in Auto Close Previous Managed App. Free and open; does not bypass DRM or third-party protections.
+Maintainer: MultiClone Community
+Author: MultiClone Community
+Section: Utilities
+Depends: firmware (>= 15.0), mobilesubstrate (>= 0.9.5000) | ellekit
+Suggests: ldid
+Conflicts: com.multiclone.core
+Replaces: com.multiclone.core
+SileoDepiction: https://luongkhanh23.github.io/multiclone/depictions/com.multiclone.manager.json
+Icon: https://luongkhanh23.github.io/multiclone/CydiaIcon.png
+Architecture: iphoneos-arm64
+Version: 1.0.0
+Installed-Size: 1052
+Filename: debs/MultiClone.deb
+Size: 163554
+MD5sum: 8c585fae3bb5eae0784bb3144d103806
+SHA1: 4c259b937c38f35d62e397d9696511dacf2249f4
+SHA256: c2e7c62e286fa1821ad15b6d309961c542a529493c27e900017e169e23bd602d

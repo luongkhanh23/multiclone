@@ -8,7 +8,6 @@
 #import "../Logger/MCLogger.h"
 
 @implementation MCCloneConfiguration
-
 - (instancetype)init {
     self = [super init];
     if (self) {
@@ -16,7 +15,29 @@
     }
     return self;
 }
+@end
 
+@implementation MCBatchCloneConfiguration
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _cloneCount = 1;
+        _exportClonedIPA = YES;
+        _alsoExportOriginalExtractedIPA = NO;
+    }
+    return self;
+}
+@end
+
+@implementation MCBatchCloneResult
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _createdRecords = @[];
+        _failureMessages = @[];
+    }
+    return self;
+}
 @end
 
 @interface MCCloneEngine ()
@@ -42,9 +63,25 @@
     return self;
 }
 
-- (NSString *)suggestNextBundleIDForSource:(NSString *)sourceBundleID {
+- (NSUInteger)nextSequenceNumberForSource:(NSString *)sourceBundleID {
+    NSUInteger countForSource = 0;
+    for (MCCloneRecord *rec in [[MCDataManager sharedManager] allClones]) {
+        if ([rec.sourceBundleID caseInsensitiveCompare:sourceBundleID ?: @""] == NSOrderedSame) {
+            countForSource++;
+        }
+    }
+    return countForSource + 1;
+}
+
+- (NSString *)formattedNumberedNameWithBase:(NSString *)baseName sequenceNumber:(NSUInteger)seq {
+    NSString *trimmed = [baseName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0) trimmed = @"app";
+    return [NSString stringWithFormat:@"%lu_%@", (unsigned long)MAX((NSUInteger)1, seq), trimmed];
+}
+
+- (NSString *)mc_suggestNextBundleIDForSource:(NSString *)sourceBundleID excluding:(NSSet<NSString *> *)extraUsed {
     NSString *base = MCIsValidBundleIdentifier(sourceBundleID) ? sourceBundleID : @"com.multiclone.app";
-    NSMutableSet<NSString *> *used = [NSMutableSet set];
+    NSMutableSet<NSString *> *used = [NSMutableSet setWithSet:extraUsed ?: [NSSet set]];
     for (MCCloneRecord *rec in [[MCDataManager sharedManager] allClones]) {
         if (rec.cloneBundleID.length > 0) [used addObject:rec.cloneBundleID.lowercaseString];
     }
@@ -57,6 +94,10 @@
         }
         index++;
     }
+}
+
+- (NSString *)suggestNextBundleIDForSource:(NSString *)sourceBundleID {
+    return [self mc_suggestNextBundleIDForSource:sourceBundleID excluding:nil];
 }
 
 - (BOOL)validateTargetBundleID:(NSString *)targetBundleID
@@ -130,13 +171,8 @@
 }
 
 - (void)mc_attemptSafeAdHocSigningAtBundle:(NSString *)appPath {
-    // Only uses local ldid if installed in rootless jailbreak environment.
-    // Never forges restricted Apple entitlements or bypasses DRM.
     NSString *ldidPath = [MCPrivateAPIBridge pathForToolNamed:@"ldid"];
-    if (ldidPath.length == 0) {
-        [[MCLogger sharedLogger] info:@"CloneEngine" format:@"ldid not found; clone prepared for external signing/export."];
-        return;
-    }
+    if (ldidPath.length == 0) return;
 
     NSString *out = nil;
     NSError *err = nil;
@@ -144,7 +180,7 @@
     if (code == 0) {
         [[MCLogger sharedLogger] info:@"CloneEngine" format:@"Ad-hoc signed staged clone bundle with ldid."];
     } else {
-        [[MCLogger sharedLogger] warn:@"CloneEngine" format:@"ldid returned code %d (%@); continuing with export.",
+        [[MCLogger sharedLogger] warn:@"CloneEngine" format:@"ldid returned code %d (%@); continuing.",
             code, err.localizedDescription ?: out ?: @""];
     }
 }
@@ -152,251 +188,414 @@
 - (void)mc_reportProgress:(void (^ _Nullable)(double, NSString *))handler fraction:(double)f stage:(NSString *)stage {
     if (!handler) return;
     dispatch_async(dispatch_get_main_queue(), ^{
-        handler(f, stage);
+        handler(MIN(1.0, MAX(0.0, f)), stage);
+    });
+}
+
+/// Prepares a clean Payload/<App>.app directory inside baseStagingDir from either an .ipa or installed .app bundle.
+- (nullable NSString *)mc_prepareSourceAppInStaging:(NSString *)baseStagingDir
+                                             report:(MCIPAInspectionReport *)report
+                                           progress:(void (^ _Nullable)(double, NSString *))progressHandler
+                                       progressBase:(double)pBase
+                                       progressSpan:(double)pSpan
+                                              error:(NSError **)error {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm createDirectoryAtPath:baseStagingDir withIntermediateDirectories:YES attributes:nil error:error]) {
+        return nil;
+    }
+
+    if (report.isFromInstalledAppBundle && report.sourceAppBundlePath.length > 0) {
+        [self mc_reportProgress:progressHandler fraction:pBase stage:@"Đang trích xuất trực tiếp từ thư mục .app gốc (chỉ đọc)..."];
+        NSString *payloadDir = [baseStagingDir stringByAppendingPathComponent:@"Payload"];
+        if (![fm createDirectoryAtPath:payloadDir withIntermediateDirectories:YES attributes:nil error:error]) {
+            return nil;
+        }
+        NSString *destApp = [payloadDir stringByAppendingPathComponent:report.sourceAppBundlePath.lastPathComponent];
+        if (![fm copyItemAtPath:report.sourceAppBundlePath toPath:destApp error:error]) {
+            return nil;
+        }
+        [self mc_reportProgress:progressHandler fraction:(pBase + pSpan) stage:@"Đã trích xuất bản sao sạch từ ứng dụng gốc."];
+        return destApp;
+    }
+
+    if (report.ipaPath.length == 0) {
+        if (error) *error = MCMakeError(MCErrorCodeInvalidArgument, @"Không có tệp IPA hoặc đường dẫn ứng dụng gốc.");
+        return nil;
+    }
+
+    MCZipArchive *archive = [MCZipArchive archiveWithPath:report.ipaPath error:error];
+    if (!archive) return nil;
+
+    BOOL extracted = [archive extractAllToDirectory:baseStagingDir progress:^(double f) {
+        [self mc_reportProgress:progressHandler fraction:(pBase + f * pSpan) stage:@"Đang giải nén tệp IPA (an toàn Zip Slip)..."];
+    } error:error];
+    if (!extracted) return nil;
+
+    NSString *payloadDir = [baseStagingDir stringByAppendingPathComponent:@"Payload"];
+    for (NSString *item in ([fm contentsOfDirectoryAtPath:payloadDir error:error] ?: @[])) {
+        if ([item.lowercaseString hasSuffix:@".app"]) {
+            return [payloadDir stringByAppendingPathComponent:item];
+        }
+    }
+    if (error) *error = MCMakeError(MCErrorCodeIPAMissingInfoPlist, @"Không tìm thấy thư mục .app trong Payload/.");
+    return nil;
+}
+
+/// Builds a single clone transactionally from an already-staged Payload/<App>.app template.
+- (nullable MCCloneRecord *)mc_buildOneCloneFromTemplateApp:(NSString *)templateAppPath
+                                                     report:(MCIPAInspectionReport *)report
+                                                displayName:(NSString *)displayName
+                                             targetBundleID:(NSString *)targetBundleID
+                                                 customIcon:(nullable UIImage *)customIcon
+                                            exportClonedIPA:(BOOL)exportClonedIPA
+                                                      error:(NSError **)error {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *cloneID = [NSUUID UUID].UUIDString;
+    NSString *txStagingDir = [MCStagingDirectory() stringByAppendingPathComponent:cloneID];
+    NSString *finalCloneDir = [MCClonesDirectory() stringByAppendingPathComponent:cloneID];
+    NSString *exportedIPAPath = nil;
+
+    void (^rollback)(void) = ^{
+        if (MCIsPathStrictlyInsideDirectory(txStagingDir, MCStagingDirectory())) {
+            [fm removeItemAtPath:txStagingDir error:nil];
+        }
+        if (MCIsPathStrictlyInsideDirectory(finalCloneDir, MCClonesDirectory())) {
+            [fm removeItemAtPath:finalCloneDir error:nil];
+        }
+        if (exportedIPAPath.length > 0 && MCIsPathStrictlyInsideDirectory(exportedIPAPath, MCExportsDirectory())) {
+            [fm removeItemAtPath:exportedIPAPath error:nil];
+        }
+        [[MCIconManager sharedManager] deleteIconForCloneID:cloneID];
+    };
+
+    NSString *payloadDir = [txStagingDir stringByAppendingPathComponent:@"Payload"];
+    if (![fm createDirectoryAtPath:payloadDir withIntermediateDirectories:YES attributes:nil error:error]) {
+        rollback();
+        return nil;
+    }
+
+    NSString *appFolderName = templateAppPath.lastPathComponent;
+    NSString *stagedAppPath = [payloadDir stringByAppendingPathComponent:appFolderName];
+    if (![fm copyItemAtPath:templateAppPath toPath:stagedAppPath error:error]) {
+        rollback();
+        return nil;
+    }
+
+    NSString *infoPlistPath = [stagedAppPath stringByAppendingPathComponent:@"Info.plist"];
+    NSMutableDictionary *info = [NSMutableDictionary dictionaryWithContentsOfFile:infoPlistPath];
+    if (!info) {
+        rollback();
+        if (error) *error = MCMakeError(MCErrorCodeIPAMissingInfoPlist, @"Không thể đọc Info.plist trong bản staging.");
+        return nil;
+    }
+
+    info[@"CFBundleIdentifier"] = targetBundleID;
+    info[@"CFBundleDisplayName"] = displayName;
+    info[@"CFBundleName"] = displayName;
+    info[@"MultiCloneSourceBundleID"] = report.bundleID ?: @"";
+    info[@"MultiCloneInstanceID"] = cloneID;
+
+    NSData *updatedPlist = [NSPropertyListSerialization dataWithPropertyList:info
+                                                                      format:NSPropertyListXMLFormat_v1_0
+                                                                     options:0
+                                                                       error:error];
+    if (!updatedPlist || ![updatedPlist writeToFile:infoPlistPath options:NSDataWritingAtomic error:error]) {
+        rollback();
+        return nil;
+    }
+
+    if (![self mc_patchExtensionBundlesInApp:stagedAppPath
+                              sourceBundleID:report.bundleID
+                              targetBundleID:targetBundleID
+                                       error:error]) {
+        rollback();
+        return nil;
+    }
+
+    // Remove stale signature & provisioning from staged clone copy ONLY (original untouched)
+    for (NSString *stale in @[@"_CodeSignature", @"embedded.mobileprovision", @"SC_Info"]) {
+        NSString *p = [stagedAppPath stringByAppendingPathComponent:stale];
+        if (MCIsPathStrictlyInsideDirectory(p, txStagingDir) && [fm fileExistsAtPath:p]) {
+            [fm removeItemAtPath:p error:nil];
+        }
+    }
+
+    // Icon handling
+    NSString *savedIconPath = nil;
+    if (customIcon) {
+        savedIconPath = [[MCIconManager sharedManager] saveCustomIconImage:customIcon forCloneID:cloneID error:error];
+        if (!savedIconPath || ![[MCIconManager sharedManager] applyCustomIcon:customIcon toAppBundle:stagedAppPath error:error]) {
+            rollback();
+            return nil;
+        }
+    } else if (report.iconPNGData.length > 0) {
+        UIImage *extractedImg = [[MCIconManager sharedManager] imageFromPNGData:report.iconPNGData];
+        if (extractedImg) {
+            savedIconPath = [[MCIconManager sharedManager] saveCustomIconImage:extractedImg forCloneID:cloneID error:nil];
+        }
+    }
+
+    [self mc_attemptSafeAdHocSigningAtBundle:stagedAppPath];
+
+    // Export clone IPA with readable name (e.g. 1_tiktok.ipa)
+    if (exportClonedIPA) {
+        NSString *safeName = [[displayName componentsSeparatedByCharactersInSet:
+            [[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-."] invertedSet]]
+            componentsJoinedByString:@"_"];
+        if (safeName.length == 0) safeName = targetBundleID;
+        NSString *ipaFileName = [NSString stringWithFormat:@"%@.ipa", safeName];
+        exportedIPAPath = [MCExportsDirectory() stringByAppendingPathComponent:ipaFileName];
+        if ([fm fileExistsAtPath:exportedIPAPath]) {
+            ipaFileName = [NSString stringWithFormat:@"%@_%@.ipa", safeName, [cloneID substringToIndex:6]];
+            exportedIPAPath = [MCExportsDirectory() stringByAppendingPathComponent:ipaFileName];
+        }
+        if (![MCZipArchive createArchiveAtPath:exportedIPAPath fromRootDirectory:txStagingDir error:error]) {
+            rollback();
+            return nil;
+        }
+    }
+
+    if (![fm createDirectoryAtPath:finalCloneDir withIntermediateDirectories:YES attributes:nil error:error]) {
+        rollback();
+        return nil;
+    }
+    NSString *finalAppPath = [finalCloneDir stringByAppendingPathComponent:appFolderName];
+    if (![fm moveItemAtPath:stagedAppPath toPath:finalAppPath error:error]) {
+        rollback();
+        return nil;
+    }
+
+    NSString *isolatedDataDir = [finalCloneDir stringByAppendingPathComponent:@"Data"];
+    for (NSString *sub in @[@"Documents", @"Library/Preferences", @"Library/Caches", @"tmp"]) {
+        NSString *p = [isolatedDataDir stringByAppendingPathComponent:sub];
+        if (![fm createDirectoryAtPath:p withIntermediateDirectories:YES attributes:nil error:error]) {
+            rollback();
+            return nil;
+        }
+    }
+
+    if (MCIsPathStrictlyInsideDirectory(txStagingDir, MCStagingDirectory())) {
+        [fm removeItemAtPath:txStagingDir error:nil];
+    }
+
+    NSMutableArray<NSString *> *warnTexts = [NSMutableArray array];
+    for (MCCompatibilityIssue *issue in report.issues) {
+        if (issue.severity == MCCompatibilitySeverityWarning) {
+            [warnTexts addObject:[NSString stringWithFormat:@"%@: %@", issue.title, issue.detail]];
+        }
+    }
+
+    MCCloneRecord *record = [[MCCloneRecord alloc] init];
+    record.cloneID = cloneID;
+    record.sourceBundleID = report.bundleID;
+    record.cloneBundleID = targetBundleID;
+    record.displayName = displayName;
+    record.sourceVersion = report.shortVersion;
+    record.sourceIPAPath = report.isFromInstalledAppBundle ? report.sourceAppBundlePath : report.ipaPath;
+    record.cloneDirectoryPath = finalCloneDir;
+    record.bundlePath = finalAppPath;
+    record.isolatedDataPath = isolatedDataDir;
+    record.exportedIPAPath = exportedIPAPath;
+    record.customIconPath = savedIconPath;
+    record.status = exportedIPAPath ? MCCloneStatusExported : MCCloneStatusConfigured;
+    record.compatibilityStatus = report.compatibilityStatus;
+    record.compatibilityWarnings = [warnTexts copy];
+
+    if (![[MCDataManager sharedManager] saveCloneRecord:record error:error]) {
+        rollback();
+        return nil;
+    }
+
+    [[MCLogger sharedLogger] info:@"CloneEngine" format:@"Created clone %@ (%@) from %@",
+        record.displayName, record.cloneBundleID, record.sourceBundleID];
+    return record;
+}
+
+- (void)extractIPAFromInstalledAppReport:(MCIPAInspectionReport *)report
+                                progress:(void (^ _Nullable)(double fraction, NSString *stage))progressHandler
+                              completion:(void (^)(NSString * _Nullable ipaPath, NSError * _Nullable error))completion {
+    dispatch_async(self.buildQueue, ^{
+        NSError *err = nil;
+        void (^finish)(NSString *, NSError *) = ^(NSString *p, NSError *e) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(p, e); });
+        };
+
+        if (!report || !report.isFromInstalledAppBundle || report.sourceAppBundlePath.length == 0) {
+            finish(nil, MCMakeError(MCErrorCodeInvalidArgument, @"Chưa chọn ứng dụng gốc đã cài để trích xuất IPA."));
+            return;
+        }
+        if (report.isFairPlayEncrypted) {
+            finish(nil, MCMakeError(MCErrorCodeIPADRMProtected,
+                @"Ứng dụng này có mã hóa FairPlay DRM (cryptid != 0). MultiClone không bypass DRM."));
+            return;
+        }
+
+        NSString *tmpStage = [MCStagingDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"extract_%@", [NSUUID UUID].UUIDString]];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *stagedApp = [self mc_prepareSourceAppInStaging:tmpStage report:report progress:progressHandler progressBase:0.1 progressSpan:0.4 error:&err];
+        if (!stagedApp) {
+            if (MCIsPathStrictlyInsideDirectory(tmpStage, MCStagingDirectory())) [fm removeItemAtPath:tmpStage error:nil];
+            finish(nil, err);
+            return;
+        }
+
+        [self mc_reportProgress:progressHandler fraction:0.65 stage:@"Đang đóng gói IPA trích xuất vào thư mục Exports..."];
+        NSString *ipaName = [NSString stringWithFormat:@"%@_extracted.ipa", report.bundleID ?: @"app"];
+        NSString *outPath = [MCExportsDirectory() stringByAppendingPathComponent:ipaName];
+        BOOL ok = [MCZipArchive createArchiveAtPath:outPath fromRootDirectory:tmpStage error:&err];
+        if (MCIsPathStrictlyInsideDirectory(tmpStage, MCStagingDirectory())) [fm removeItemAtPath:tmpStage error:nil];
+
+        if (!ok) {
+            finish(nil, err);
+            return;
+        }
+        [self mc_reportProgress:progressHandler fraction:1.0 stage:@"Trích xuất IPA thành công!"];
+        [[MCLogger sharedLogger] info:@"CloneEngine" format:@"Extracted IPA from installed app %@ -> %@", report.bundleID, outPath.lastPathComponent];
+        finish(outPath, nil);
     });
 }
 
 - (void)createCloneWithConfiguration:(MCCloneConfiguration *)config
                             progress:(void (^ _Nullable)(double fraction, NSString *stageDescription))progressHandler
                           completion:(void (^)(MCCloneRecord * _Nullable record, NSError * _Nullable error))completion {
+    MCBatchCloneConfiguration *batch = [[MCBatchCloneConfiguration alloc] init];
+    batch.inspectionReport = config.inspectionReport;
+    batch.baseDisplayName = config.displayName;
+    batch.customSingleBundleID = config.targetBundleID;
+    batch.cloneCount = 1;
+    batch.customIcon = config.customIcon;
+    batch.acknowledgeWarnings = config.acknowledgeWarnings;
+    batch.exportClonedIPA = config.exportClonedIPA;
+
+    [self createBatchClonesWithConfiguration:batch progress:progressHandler completion:^(MCBatchCloneResult * _Nullable res, NSError * _Nullable err) {
+        if (err || !res || res.createdRecords.count == 0) {
+            NSString *msg = err.localizedDescription ?: res.failureMessages.firstObject ?: @"Tạo bản clone thất bại.";
+            completion(nil, err ?: MCMakeError(MCErrorCodeStagingFailed, msg));
+            return;
+        }
+        completion(res.createdRecords.firstObject, nil);
+    }];
+}
+
+- (void)createBatchClonesWithConfiguration:(MCBatchCloneConfiguration *)config
+                                  progress:(void (^ _Nullable)(double fraction, NSString *stageDescription))progressHandler
+                                completion:(void (^)(MCBatchCloneResult * _Nullable result, NSError * _Nullable error))completion {
     dispatch_async(self.buildQueue, ^{
         NSError *err = nil;
         NSFileManager *fm = [NSFileManager defaultManager];
 
-        void (^finish)(MCCloneRecord *, NSError *) = ^(MCCloneRecord *rec, NSError *e) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                completion(rec, e);
-            });
+        void (^finish)(MCBatchCloneResult *, NSError *) = ^(MCBatchCloneResult *res, NSError *e) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(res, e); });
         };
 
         MCIPAInspectionReport *report = config.inspectionReport;
-        if (!report || report.ipaPath.length == 0) {
-            finish(nil, MCMakeError(MCErrorCodeInvalidArgument, @"Chưa có báo cáo phân tích IPA hợp lệ."));
+        if (!report || (!report.isFromInstalledAppBundle && report.ipaPath.length == 0)) {
+            finish(nil, MCMakeError(MCErrorCodeInvalidArgument, @"Chưa có tệp IPA hoặc ứng dụng gốc hợp lệ."));
             return;
         }
-
         if (report.compatibilityStatus == MCCompatibilityStatusIncompatible) {
             MCErrorCode code = report.isFairPlayEncrypted ? MCErrorCodeIPADRMProtected : MCErrorCodeIPAIncompatibleArchitecture;
-            finish(nil, MCMakeError(code, report.compatibilitySummary ?: @"IPA không tương thích để tạo bản clone."));
+            finish(nil, MCMakeError(code, report.compatibilitySummary ?: @"Ứng dụng không tương thích để nhân bản."));
             return;
         }
-
         if (report.compatibilityStatus == MCCompatibilityStatusPartialWarning && !config.acknowledgeWarnings) {
             finish(nil, MCMakeError(MCErrorCodeInvalidArgument, @"Cần xác nhận đã đọc cảnh báo tương thích trước khi tiếp tục."));
             return;
         }
 
-        NSString *displayName = [config.displayName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (displayName.length == 0) {
-            finish(nil, MCMakeError(MCErrorCodeInvalidArgument, @"Tên hiển thị cho bản clone không được để trống."));
+        NSUInteger count = MAX((NSUInteger)1, config.cloneCount);
+        NSString *baseName = [config.baseDisplayName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (baseName.length == 0) {
+            finish(nil, MCMakeError(MCErrorCodeInvalidArgument, @"Tên bản clone không được để trống."));
             return;
         }
 
-        if (![self validateTargetBundleID:config.targetBundleID sourceBundleID:report.bundleID error:&err]) {
-            finish(nil, err);
-            return;
-        }
-
-        NSString *cloneID = [NSUUID UUID].UUIDString;
-        NSString *txStagingDir = [MCStagingDirectory() stringByAppendingPathComponent:cloneID];
-        NSString *finalCloneDir = [MCClonesDirectory() stringByAppendingPathComponent:cloneID];
-        NSString *exportedIPAPath = nil;
-
-        void (^rollback)(void) = ^{
-            if (MCIsPathStrictlyInsideDirectory(txStagingDir, MCStagingDirectory())) {
-                [fm removeItemAtPath:txStagingDir error:nil];
-            }
-            if (MCIsPathStrictlyInsideDirectory(finalCloneDir, MCClonesDirectory())) {
-                [fm removeItemAtPath:finalCloneDir error:nil];
-            }
-            if (exportedIPAPath.length > 0 && MCIsPathStrictlyInsideDirectory(exportedIPAPath, MCExportsDirectory())) {
-                [fm removeItemAtPath:exportedIPAPath error:nil];
-            }
-            [[MCIconManager sharedManager] deleteIconForCloneID:cloneID];
-            [[MCLogger sharedLogger] warn:@"CloneEngine" format:@"Rolled back failed transaction %@", cloneID];
-        };
-
-        [self mc_reportProgress:progressHandler fraction:0.10 stage:@"Khởi tạo không gian tạm cô lập (staging)..."];
-        if (![fm createDirectoryAtPath:txStagingDir withIntermediateDirectories:YES attributes:nil error:&err]) {
-            rollback();
-            finish(nil, err);
-            return;
-        }
-
-        [self mc_reportProgress:progressHandler fraction:0.20 stage:@"Giải nén IPA an toàn (chống Zip Slip)..."];
-        MCZipArchive *archive = [MCZipArchive archiveWithPath:report.ipaPath error:&err];
-        if (!archive) {
-            rollback();
-            finish(nil, err);
-            return;
-        }
-        BOOL extracted = [archive extractAllToDirectory:txStagingDir progress:^(double f) {
-            [self mc_reportProgress:progressHandler fraction:(0.20 + f * 0.35) stage:@"Đang giải nén nội dung IPA..."];
-        } error:&err];
-        if (!extracted) {
-            rollback();
-            finish(nil, err);
-            return;
-        }
-
-        // Locate extracted .app inside Payload/
-        NSString *payloadDir = [txStagingDir stringByAppendingPathComponent:@"Payload"];
-        NSArray<NSString *> *payloadItems = [fm contentsOfDirectoryAtPath:payloadDir error:&err];
-        NSString *appFolderName = nil;
-        for (NSString *item in payloadItems) {
-            if ([item.lowercaseString hasSuffix:@".app"]) {
-                appFolderName = item;
-                break;
-            }
-        }
-        if (!appFolderName) {
-            rollback();
-            finish(nil, MCMakeError(MCErrorCodeIPAMissingInfoPlist, @"Không tìm thấy thư mục .app sau khi giải nén."));
-            return;
-        }
-
-        NSString *stagedAppPath = [payloadDir stringByAppendingPathComponent:appFolderName];
-        NSString *infoPlistPath = [stagedAppPath stringByAppendingPathComponent:@"Info.plist"];
-
-        [self mc_reportProgress:progressHandler fraction:0.60 stage:@"Cập nhật Bundle ID và tên hiển thị độc lập..."];
-        NSMutableDictionary *info = [NSMutableDictionary dictionaryWithContentsOfFile:infoPlistPath];
-        if (!info) {
-            rollback();
-            finish(nil, MCMakeError(MCErrorCodeIPAMissingInfoPlist, @"Không thể đọc Info.plist trong bản staging."));
-            return;
-        }
-
-        info[@"CFBundleIdentifier"] = config.targetBundleID;
-        info[@"CFBundleDisplayName"] = displayName;
-        info[@"CFBundleName"] = displayName;
-        info[@"MultiCloneSourceBundleID"] = report.bundleID ?: @"";
-        info[@"MultiCloneInstanceID"] = cloneID;
-
-        NSData *updatedPlist = [NSPropertyListSerialization dataWithPropertyList:info
-                                                                          format:NSPropertyListXMLFormat_v1_0
-                                                                         options:0
-                                                                           error:&err];
-        if (!updatedPlist || ![updatedPlist writeToFile:infoPlistPath options:NSDataWritingAtomic error:&err]) {
-            rollback();
-            finish(nil, err);
-            return;
-        }
-
-        // Patch nested .appex bundle IDs proportionally
-        if (![self mc_patchExtensionBundlesInApp:stagedAppPath
-                                  sourceBundleID:report.bundleID
-                                  targetBundleID:config.targetBundleID
-                                           error:&err]) {
-            rollback();
-            finish(nil, err);
-            return;
-        }
-
-        // Remove stale original _CodeSignature & embedded.mobileprovision from staged copy only
-        NSString *oldSig = [stagedAppPath stringByAppendingPathComponent:@"_CodeSignature"];
-        if (MCIsPathStrictlyInsideDirectory(oldSig, txStagingDir)) {
-            [fm removeItemAtPath:oldSig error:nil];
-        }
-        NSString *oldProv = [stagedAppPath stringByAppendingPathComponent:@"embedded.mobileprovision"];
-        if (MCIsPathStrictlyInsideDirectory(oldProv, txStagingDir)) {
-            [fm removeItemAtPath:oldProv error:nil];
-        }
-
-        // Apply custom icon if provided
-        NSString *savedIconPath = nil;
-        if (config.customIcon) {
-            [self mc_reportProgress:progressHandler fraction:0.70 stage:@"Áp dụng biểu tượng tùy chỉnh..."];
-            savedIconPath = [[MCIconManager sharedManager] saveCustomIconImage:config.customIcon forCloneID:cloneID error:&err];
-            if (!savedIconPath || ![[MCIconManager sharedManager] applyCustomIcon:config.customIcon toAppBundle:stagedAppPath error:&err]) {
-                rollback();
-                finish(nil, err);
-                return;
-            }
-        } else if (report.iconPNGData.length > 0) {
-            UIImage *extractedImg = [[MCIconManager sharedManager] imageFromPNGData:report.iconPNGData];
-            if (extractedImg) {
-                savedIconPath = [[MCIconManager sharedManager] saveCustomIconImage:extractedImg forCloneID:cloneID error:nil];
-            }
-        }
-
-        [self mc_reportProgress:progressHandler fraction:0.78 stage:@"Chuẩn bị chữ ký cục bộ (ad-hoc nếu có ldid)..."];
-        [self mc_attemptSafeAdHocSigningAtBundle:stagedAppPath];
-
-        // Export cloned IPA if requested
-        if (config.exportClonedIPA) {
-            [self mc_reportProgress:progressHandler fraction:0.85 stage:@"Đóng gói bản clone IPA vào thư mục Exports..."];
-            NSString *ipaFileName = [NSString stringWithFormat:@"%@.ipa", config.targetBundleID];
-            exportedIPAPath = [MCExportsDirectory() stringByAppendingPathComponent:ipaFileName];
-            if (![MCZipArchive createArchiveAtPath:exportedIPAPath fromRootDirectory:txStagingDir error:&err]) {
-                rollback();
+        if (count == 1 && config.customSingleBundleID.length > 0) {
+            if (![self validateTargetBundleID:config.customSingleBundleID sourceBundleID:report.bundleID error:&err]) {
                 finish(nil, err);
                 return;
             }
         }
 
-        // Commit atomically into MCClonesDirectory()/<cloneID>/
-        [self mc_reportProgress:progressHandler fraction:0.93 stage:@"Hoàn tất và đăng ký dữ liệu cô lập..."];
-        if (![fm createDirectoryAtPath:finalCloneDir withIntermediateDirectories:YES attributes:nil error:&err]) {
-            rollback();
-            finish(nil, err);
-            return;
-        }
-        NSString *finalAppPath = [finalCloneDir stringByAppendingPathComponent:appFolderName];
-        if (![fm moveItemAtPath:stagedAppPath toPath:finalAppPath error:&err]) {
-            rollback();
+        // Extract/copy source ONCE into a shared base staging folder for fast batch cloning
+        NSString *sharedStage = [MCStagingDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"batch_%@", [NSUUID UUID].UUIDString]];
+        NSString *templateApp = [self mc_prepareSourceAppInStaging:sharedStage
+                                                            report:report
+                                                          progress:progressHandler
+                                                      progressBase:0.05
+                                                      progressSpan:0.25
+                                                             error:&err];
+        if (!templateApp) {
+            if (MCIsPathStrictlyInsideDirectory(sharedStage, MCStagingDirectory())) [fm removeItemAtPath:sharedStage error:nil];
             finish(nil, err);
             return;
         }
 
-        NSString *isolatedDataDir = [finalCloneDir stringByAppendingPathComponent:@"Data"];
-        for (NSString *sub in @[@"Documents", @"Library/Preferences", @"Library/Caches", @"tmp"]) {
-            NSString *p = [isolatedDataDir stringByAppendingPathComponent:sub];
-            if (![fm createDirectoryAtPath:p withIntermediateDirectories:YES attributes:nil error:&err]) {
-                rollback();
-                finish(nil, err);
-                return;
+        MCBatchCloneResult *batchResult = [[MCBatchCloneResult alloc] init];
+
+        // Optionally export extracted source IPA if sourced from installed app
+        if (report.isFromInstalledAppBundle && config.alsoExportOriginalExtractedIPA) {
+            [self mc_reportProgress:progressHandler fraction:0.32 stage:@"Đang lưu tệp IPA trích xuất từ app gốc..."];
+            NSString *origName = [NSString stringWithFormat:@"%@_original_extracted.ipa", report.bundleID ?: @"app"];
+            NSString *origDest = [MCExportsDirectory() stringByAppendingPathComponent:origName];
+            if ([MCZipArchive createArchiveAtPath:origDest fromRootDirectory:sharedStage error:nil]) {
+                batchResult.extractedSourceIPAPath = origDest;
             }
         }
 
-        // Clean staging dir after atomic move
-        if (MCIsPathStrictlyInsideDirectory(txStagingDir, MCStagingDirectory())) {
-            [fm removeItemAtPath:txStagingDir error:nil];
-        }
+        NSMutableArray<MCCloneRecord *> *created = [NSMutableArray arrayWithCapacity:count];
+        NSMutableArray<NSString *> *failures = [NSMutableArray array];
+        NSMutableSet<NSString *> *reservedIDs = [NSMutableSet set];
+        NSUInteger startSeq = [self nextSequenceNumberForSource:report.bundleID];
 
-        // Collect warning summaries
-        NSMutableArray<NSString *> *warnTexts = [NSMutableArray array];
-        for (MCCompatibilityIssue *issue in report.issues) {
-            if (issue.severity == MCCompatibilitySeverityWarning) {
-                [warnTexts addObject:[NSString stringWithFormat:@"%@: %@", issue.title, issue.detail]];
+        for (NSUInteger i = 0; i < count; i++) {
+            @autoreleasepool {
+                NSUInteger seq = startSeq + i;
+                // If user already typed "1_tiktok" for single clone, preserve; otherwise format as "<seq>_<baseName>"
+                NSString *cloneName = nil;
+                if (count == 1 && [baseName rangeOfString:@"^[0-9]+_" options:NSRegularExpressionSearch].location != NSNotFound) {
+                    cloneName = baseName;
+                } else {
+                    cloneName = [self formattedNumberedNameWithBase:baseName sequenceNumber:seq];
+                }
+
+                NSString *targetBID = (count == 1 && config.customSingleBundleID.length > 0)
+                    ? config.customSingleBundleID
+                    : [self mc_suggestNextBundleIDForSource:report.bundleID excluding:reservedIDs];
+                [reservedIDs addObject:targetBID.lowercaseString];
+
+                double frac = 0.35 + (0.62 * ((double)i / (double)count));
+                [self mc_reportProgress:progressHandler
+                               fraction:frac
+                                  stage:[NSString stringWithFormat:@"[%lu/%lu] Đang tạo %@ (%@)...",
+                                         (unsigned long)(i + 1), (unsigned long)count, cloneName, targetBID]];
+
+                NSError *oneErr = nil;
+                MCCloneRecord *rec = [self mc_buildOneCloneFromTemplateApp:templateApp
+                                                                    report:report
+                                                               displayName:cloneName
+                                                            targetBundleID:targetBID
+                                                                customIcon:config.customIcon
+                                                           exportClonedIPA:config.exportClonedIPA
+                                                                     error:&oneErr];
+                if (rec) {
+                    [created addObject:rec];
+                } else {
+                    [failures addObject:[NSString stringWithFormat:@"%@: %@", cloneName, oneErr.localizedDescription ?: @"Lỗi không xác định"]];
+                }
             }
         }
 
-        MCCloneRecord *record = [[MCCloneRecord alloc] init];
-        record.cloneID = cloneID;
-        record.sourceBundleID = report.bundleID;
-        record.cloneBundleID = config.targetBundleID;
-        record.displayName = displayName;
-        record.sourceVersion = report.shortVersion;
-        record.sourceIPAPath = report.ipaPath;
-        record.cloneDirectoryPath = finalCloneDir;
-        record.bundlePath = finalAppPath;
-        record.isolatedDataPath = isolatedDataDir;
-        record.exportedIPAPath = exportedIPAPath;
-        record.customIconPath = savedIconPath;
-        record.status = exportedIPAPath ? MCCloneStatusExported : MCCloneStatusConfigured;
-        record.compatibilityStatus = report.compatibilityStatus;
-        record.compatibilityWarnings = [warnTexts copy];
-
-        if (![[MCDataManager sharedManager] saveCloneRecord:record error:&err]) {
-            rollback();
-            finish(nil, err);
-            return;
+        if (MCIsPathStrictlyInsideDirectory(sharedStage, MCStagingDirectory())) {
+            [fm removeItemAtPath:sharedStage error:nil];
         }
 
-        [[MCLogger sharedLogger] info:@"CloneEngine" format:@"Created clone %@ (%@) from %@",
-            record.displayName, record.cloneBundleID, record.sourceBundleID];
-        [self mc_reportProgress:progressHandler fraction:1.0 stage:@"Hoàn thành tạo cấu hình clone!"];
-        finish(record, nil);
+        batchResult.createdRecords = [created copy];
+        batchResult.failureMessages = [failures copy];
+        [self mc_reportProgress:progressHandler fraction:1.0
+                          stage:[NSString stringWithFormat:@"Hoàn thành: %lu/%lu bản clone!",
+                                 (unsigned long)created.count, (unsigned long)count]];
+        finish(batchResult, nil);
     });
 }
 

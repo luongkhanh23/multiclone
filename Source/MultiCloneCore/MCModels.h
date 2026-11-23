@@ -43,6 +43,8 @@ typedef NS_ENUM(NSInteger, MCCloneStatus) {
 
 @interface MCIPAInspectionReport : NSObject
 @property (nonatomic, copy) NSString *ipaPath;
+@property (nonatomic, copy, nullable) NSString *sourceAppBundlePath;
+@property (nonatomic, assign) BOOL isFromInstalledAppBundle;
 @property (nonatomic, copy) NSString *appFolderPathInZip;
 @property (nonatomic, copy) NSString *bundleID;
 @property (nonatomic, copy) NSString *displayName;

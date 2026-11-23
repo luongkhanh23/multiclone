@@ -222,6 +222,138 @@
     return report;
 }
 
++ (nullable MCIPAInspectionReport *)inspectInstalledAppBundleAtPath:(NSString *)appBundlePath error:(NSError **)error {
+    [[MCLogger sharedLogger] info:@"IPAInspector" format:@"Inspecting installed .app bundle: %@", appBundlePath.lastPathComponent ?: @"(nil)"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    BOOL isDir = NO;
+    if (appBundlePath.length == 0 || ![fm fileExistsAtPath:appBundlePath isDirectory:&isDir] || !isDir) {
+        if (error) *error = MCMakeError(MCErrorCodeIOFailure, @"Không tìm thấy thư mục .app của ứng dụng gốc.");
+        return nil;
+    }
+
+    NSString *infoPath = [appBundlePath stringByAppendingPathComponent:@"Info.plist"];
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:infoPath];
+    if (![info isKindOfClass:[NSDictionary class]]) {
+        if (error) *error = MCMakeError(MCErrorCodeIPAMissingInfoPlist, @"Không thể đọc Info.plist từ ứng dụng đã cài (kiểm tra quyền truy cập).");
+        return nil;
+    }
+
+    MCIPAInspectionReport *report = [[MCIPAInspectionReport alloc] init];
+    report.ipaPath = @"";
+    report.sourceAppBundlePath = appBundlePath;
+    report.isFromInstalledAppBundle = YES;
+    report.appFolderPathInZip = [NSString stringWithFormat:@"Payload/%@/", appBundlePath.lastPathComponent];
+    report.bundleID = [info[@"CFBundleIdentifier"] isKindOfClass:[NSString class]] ? info[@"CFBundleIdentifier"] : @"";
+    report.displayName = [info[@"CFBundleDisplayName"] isKindOfClass:[NSString class]] ? info[@"CFBundleDisplayName"]
+        : ([info[@"CFBundleName"] isKindOfClass:[NSString class]] ? info[@"CFBundleName"] : report.bundleID);
+    report.shortVersion = [info[@"CFBundleShortVersionString"] isKindOfClass:[NSString class]] ? info[@"CFBundleShortVersionString"] : @"";
+    report.buildVersion = [info[@"CFBundleVersion"] isKindOfClass:[NSString class]] ? info[@"CFBundleVersion"] : @"";
+    report.executableName = [info[@"CFBundleExecutable"] isKindOfClass:[NSString class]] ? info[@"CFBundleExecutable"] : @"";
+    report.minimumOSVersion = [info[@"MinimumOSVersion"] isKindOfClass:[NSString class]] ? info[@"MinimumOSVersion"] : nil;
+    report.supportedPlatforms = [info[@"CFBundleSupportedPlatforms"] isKindOfClass:[NSArray class]] ? info[@"CFBundleSupportedPlatforms"] : @[];
+
+    // URL Schemes
+    NSMutableArray<NSString *> *schemes = [NSMutableArray array];
+    NSArray *urlTypes = info[@"CFBundleURLTypes"];
+    if ([urlTypes isKindOfClass:[NSArray class]]) {
+        for (id item in urlTypes) {
+            if ([item isKindOfClass:[NSDictionary class]]) {
+                NSArray *s = item[@"CFBundleURLSchemes"];
+                if ([s isKindOfClass:[NSArray class]]) {
+                    for (id sc in s) {
+                        if ([sc isKindOfClass:[NSString class]] && ![schemes containsObject:sc]) [schemes addObject:sc];
+                    }
+                }
+            }
+        }
+    }
+    report.urlSchemes = [schemes copy];
+
+    // Embedded Frameworks
+    NSMutableArray<NSString *> *frameworks = [NSMutableArray array];
+    NSString *fwDir = [appBundlePath stringByAppendingPathComponent:@"Frameworks"];
+    for (NSString *fw in ([fm contentsOfDirectoryAtPath:fwDir error:nil] ?: @[])) {
+        if ([fw.lowercaseString hasSuffix:@".framework"] || [fw.lowercaseString hasSuffix:@".dylib"]) {
+            [frameworks addObject:fw];
+        }
+    }
+    report.frameworks = [frameworks copy];
+
+    // Embedded Extensions (.appex)
+    NSMutableArray<MCExtensionInfo *> *extensions = [NSMutableArray array];
+    NSString *pluginsDir = [appBundlePath stringByAppendingPathComponent:@"PlugIns"];
+    for (NSString *item in ([fm contentsOfDirectoryAtPath:pluginsDir error:nil] ?: @[])) {
+        if (![item.lowercaseString hasSuffix:@".appex"]) continue;
+        NSString *extPlistPath = [[pluginsDir stringByAppendingPathComponent:item] stringByAppendingPathComponent:@"Info.plist"];
+        NSDictionary *extPlist = [NSDictionary dictionaryWithContentsOfFile:extPlistPath];
+        if ([extPlist isKindOfClass:[NSDictionary class]]) {
+            MCExtensionInfo *ext = [[MCExtensionInfo alloc] init];
+            ext.relativePath = [@"PlugIns/" stringByAppendingPathComponent:[item stringByAppendingPathComponent:@"Info.plist"]];
+            ext.bundleID = [extPlist[@"CFBundleIdentifier"] isKindOfClass:[NSString class]] ? extPlist[@"CFBundleIdentifier"] : @"";
+            ext.displayName = [extPlist[@"CFBundleDisplayName"] isKindOfClass:[NSString class]] ? extPlist[@"CFBundleDisplayName"]
+                : ([extPlist[@"CFBundleName"] isKindOfClass:[NSString class]] ? extPlist[@"CFBundleName"] : ext.bundleID);
+            NSDictionary *nsExt = extPlist[@"NSExtension"];
+            if ([nsExt isKindOfClass:[NSDictionary class]] && [nsExt[@"NSExtensionPointIdentifier"] isKindOfClass:[NSString class]]) {
+                ext.extensionPointIdentifier = nsExt[@"NSExtensionPointIdentifier"];
+            }
+            [extensions addObject:ext];
+        }
+    }
+    report.extensions = [extensions copy];
+
+    // Provisioning profile
+    NSString *provPath = [appBundlePath stringByAppendingPathComponent:@"embedded.mobileprovision"];
+    if ([fm fileExistsAtPath:provPath]) {
+        report.hasEmbeddedProvisioningProfile = YES;
+        NSData *provData = [NSData dataWithContentsOfFile:provPath];
+        report.provisioningProfile = [self mc_parseProvisioningProfileData:provData];
+    }
+
+    // Mach-O Executable inspection (read-only)
+    if (report.executableName.length > 0) {
+        NSString *execPath = [appBundlePath stringByAppendingPathComponent:report.executableName];
+        NSData *execData = [NSData dataWithContentsOfFile:execPath options:NSDataReadingMappedIfSafe error:nil];
+        if (execData.length > 0) {
+            MCMachOInspectionResult *macho = [MCMachOInspector inspectMachOData:execData];
+            report.architectures = macho.architectures;
+            report.isFairPlayEncrypted = macho.isEncrypted;
+            report.encryptionCryptID = macho.cryptID;
+            if (macho.entitlements) {
+                report.entitlements = macho.entitlements;
+            }
+        }
+    }
+    if (!report.entitlements && [report.provisioningProfile[@"Entitlements"] isKindOfClass:[NSDictionary class]]) {
+        report.entitlements = report.provisioningProfile[@"Entitlements"];
+    }
+
+    // Best icon PNG from installed bundle
+    NSArray<NSString *> *topFiles = [fm contentsOfDirectoryAtPath:appBundlePath error:nil] ?: @[];
+    NSString *bestIconPath = nil;
+    unsigned long long bestSize = 0;
+    for (NSString *file in topFiles) {
+        if (![file.lowercaseString hasSuffix:@".png"]) continue;
+        if (![file.lowercaseString containsString:@"appicon"] && ![file.lowercaseString containsString:@"icon"]) continue;
+        NSString *full = [appBundlePath stringByAppendingPathComponent:file];
+        unsigned long long sz = [[fm attributesOfItemAtPath:full error:nil] fileSize];
+        if (sz > bestSize) {
+            bestSize = sz;
+            bestIconPath = full;
+        }
+    }
+    if (bestIconPath) {
+        NSData *iconData = [NSData dataWithContentsOfFile:bestIconPath];
+        if (iconData.length > 0) {
+            report.iconEntryPath = bestIconPath.lastPathComponent;
+            report.iconPNGData = iconData;
+            report.isIconCgBIEncoded = [self mc_isCgBIPNG:iconData];
+        }
+    }
+
+    [self evaluateCompatibilityForReport:report];
+    return report;
+}
+
 + (void)evaluateCompatibilityForReport:(MCIPAInspectionReport *)report {
     NSMutableArray<MCCompatibilityIssue *> *issues = [NSMutableArray array];
     BOOL hasBlocker = NO;
