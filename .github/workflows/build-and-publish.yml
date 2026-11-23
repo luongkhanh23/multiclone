@@ -28,13 +28,15 @@ jobs:
 
       - name: Install Theos, Linux iOS Toolchain & Patched iOS SDK
         run: |
-          git clone --recursive --depth=1 https://github.com/theos/theos.git "$HOME/theos"
-          mkdir -p "$HOME/theos/toolchain" "$HOME/theos/sdks"
+          export THEOS="$HOME/theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          git clone --recursive --depth=1 https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/toolchain" "$THEOS/sdks"
           curl -fsSL "https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz" \
-            | tar -xJf - -C "$HOME/theos/toolchain/"
-          "$HOME/theos/bin/install-sdk" latest
-          ls -la "$HOME/theos/toolchain/linux/iphone/bin"
-          ls -la "$HOME/theos/sdks"
+            | tar -xJf - -C "$THEOS/toolchain/"
+          "$THEOS/bin/install-sdk" latest
+          ls -la "$THEOS/toolchain/linux/iphone/bin"
+          ls -la "$THEOS/sdks"
 
       - name: Detect project root
         id: paths
