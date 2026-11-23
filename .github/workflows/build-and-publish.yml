@@ -1,0 +1,87 @@
+name: Build MultiClone Rootless DEB & Publish Sileo Repo
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-rootless-deb:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (ldid, dpkg, xz)
+        run: |
+          brew install ldid dpkg xz
+
+      - name: Install Theos & iOS SDK
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          mkdir -p "$HOME/theos/sdks"
+          XCODE_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          cp -R "$XCODE_SDK" "$HOME/theos/sdks/"
+          ls -la "$HOME/theos/sdks"
+
+      - name: Detect project root
+        id: paths
+        run: |
+          if [ -f "Makefile" ] && [ -d "Source" ]; then
+            echo "root=." >> "$GITHUB_OUTPUT"
+          elif [ -f "MultiClone/Makefile" ]; then
+            echo "root=MultiClone" >> "$GITHUB_OUTPUT"
+          else
+            echo "ERROR: Could not locate MultiClone Makefile" >&2
+            exit 1
+          fi
+
+      - name: Run Automated Test Suite
+        run: |
+          python3 "${{ steps.paths.outputs.root }}/Tests/run_all_tests.py"
+
+      - name: Build & Verify Rootless MultiClone.deb (arm64 + arm64e)
+        env:
+          THEOS: /Users/runner/theos
+          THEOS_PACKAGE_SCHEME: rootless
+        run: |
+          ROOT="${{ steps.paths.outputs.root }}"
+          chmod +x "$ROOT"/Scripts/*.sh "$ROOT"/Packaging/DEBIAN/*
+          "$ROOT/Scripts/build.sh"
+
+      - name: Build Sileo APT Repository Index
+        run: |
+          ROOT="${{ steps.paths.outputs.root }}"
+          python3 "$ROOT/Scripts/build_repo.py" "$ROOT/Releases" "$ROOT/Repository"
+
+      - name: Upload Built DEB, Checksums & Build Log
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiClone-iOS18.2-Rootless-Release
+          path: |
+            ${{ steps.paths.outputs.root }}/Releases/MultiClone.deb
+            ${{ steps.paths.outputs.root }}/Releases/SHA256SUMS.txt
+            ${{ steps.paths.outputs.root }}/Releases/build.log
+
+      - name: Upload GitHub Pages Sileo Repo Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ steps.paths.outputs.root }}/Repository
+
+  deploy-sileo-pages:
+    needs: build-rootless-deb
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Sileo Repository to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

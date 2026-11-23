@@ -1,0 +1,67 @@
+{
+  "minVersion": "0.1",
+  "headerImage": "",
+  "tintColor": "#3B82F6",
+  "class": "DepictionTabView",
+  "tabs": [
+    {
+      "tabname": "Tổng quan",
+      "class": "DepictionStackView",
+      "views": [
+        {
+          "class": "DepictionHeaderView",
+          "title": "MultiClone v1.0.0 (Rootless)"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "Công cụ quản lý và tạo cấu hình bản sao ứng dụng cho **iPhone 11 / iOS 18.2 / Dopamine 3.0.7+ (Rootless)**.\n\n### Tính năng chính\n- **MultiClone Manager (Dark Mode):** Quản lý danh sách ứng dụng gốc và bản clone, tìm kiếm, đổi tên, thay biểu tượng, kiểm tra dung lượng và quản lý dữ liệu cô lập.\n- **IPA Inspector tích hợp:** Tự động phân tích Bundle ID, Display Name, Icon, Mach-O (arm64/arm64e), phát hiện FairPlay DRM (`cryptid`), Frameworks, Extensions (`.appex`) và Entitlements.\n- **CloneEngine có khôi phục giao dịch (Rollback):** Không làm hỏng hoặc ghi đè ứng dụng gốc.\n- **Auto Close Previous App (Opt-in):** Tự động đóng bản clone trước khi mở clone mới từ Manager; luôn bảo vệ ứng dụng hệ thống Apple và ứng dụng ngoài MultiClone.\n\n### Lưu ý tương thích\nMultiClone **không** bypass FairPlay DRM, chống gian lận hay xác minh phía máy chủ. Các IPA có DRM, App Groups, Keychain hoặc xác minh máy chủ sẽ được cảnh báo rõ ràng."
+        },
+        {
+          "class": "DepictionSeparatorView"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Phiên bản",
+          "text": "1.0.0"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Kiến trúc",
+          "text": "iphoneos-arm64 (arm64 / arm64e Rootless)"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Hỗ trợ iOS",
+          "text": "iOS 15.0 – 18.2 (Dopamine 3.0.7+)"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Chi phí",
+          "text": "Miễn phí (Không yêu cầu license)"
+        }
+      ]
+    },
+    {
+      "tabname": "Lịch sử thay đổi",
+      "class": "DepictionStackView",
+      "views": [
+        {
+          "class": "DepictionSubheaderView",
+          "title": "1.0.0"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- Triển khai đầy đủ ứng dụng **MultiClone Manager** giao diện Dark Mode.\n- Tích hợp **MCIPAInspector** đọc Mach-O, FairPlay DRM và Entitlements trực tiếp.\n- Nâng cấp **MultiCloneSpringBoard Auto Close** với giao tiếp IPC 2 lớp, Ping/Pong kiểm tra trạng thái, xác nhận trước khi đóng và cô lập hoàn toàn Private API.\n- Đóng gói chuẩn Theos Rootless với script cài đặt và gỡ cài đặt sạch."
+        },
+        {
+          "class": "DepictionSubheaderView",
+          "title": "0.3.0"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- Phiên bản nền tảng với bộ lắng nghe Auto-Close cơ bản và công cụ CLI kiểm tra IPA."
+        }
+      ]
+    }
+  ]
+}

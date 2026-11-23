@@ -1,0 +1,36 @@
+#!/bin/sh
+set -e
+
+JB_PREFIX="/var/jb"
+if [ ! -d "$JB_PREFIX" ]; then
+    JB_PREFIX=""
+fi
+
+APP_PATH="${JB_PREFIX}/Applications/MultiCloneManager.app"
+DATA_DIR="/var/mobile/Library/MultiClone"
+PREF_FILE="/var/mobile/Library/Preferences/com.multiclone.manager.plist"
+DEFAULT_PLIST="${JB_PREFIX}/Library/Application Support/MultiClone/auto-close-defaults.plist"
+
+# Prepare isolated MultiClone workspace owned by mobile (never touches original apps)
+mkdir -p "${DATA_DIR}/Clones" "${DATA_DIR}/Staging" "${DATA_DIR}/Icons" "${DATA_DIR}/Exports" "${DATA_DIR}/Logs"
+chown -R mobile:mobile "${DATA_DIR}" 2>/dev/null || true
+chmod 0755 "${DATA_DIR}"
+
+# Seed safe default preferences only on fresh install (preserve existing settings on upgrade)
+if [ ! -f "${PREF_FILE}" ] && [ -f "${DEFAULT_PLIST}" ]; then
+    cp "${DEFAULT_PLIST}" "${PREF_FILE}"
+    chown mobile:mobile "${PREF_FILE}" 2>/dev/null || true
+    chmod 0644 "${PREF_FILE}"
+fi
+
+# Register MultiCloneManager.app on Home Screen via rootless uicache
+UICACHE="${JB_PREFIX}/usr/bin/uicache"
+if [ ! -x "$UICACHE" ]; then
+    UICACHE="$(command -v uicache 2>/dev/null || true)"
+fi
+if [ -n "$UICACHE" ] && [ -d "$APP_PATH" ]; then
+    "$UICACHE" -p "$APP_PATH" || true
+fi
+
+echo "[MultiClone] Installed v1.0.0 (rootless). Please respring from Sileo to activate MultiCloneSpringBoard."
+exit 0

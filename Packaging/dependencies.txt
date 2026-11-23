@@ -1,0 +1,22 @@
+# MultiClone Runtime & Build Dependencies (iOS 18.2 / Dopamine 3.0.7+ Rootless)
+
+## Runtime (Debian control / Sileo)
+- firmware (>= 15.0)                     # Target verified baseline; iOS 18.2 supported
+- mobilesubstrate (>= 0.9.5000) | ellekit # Tweak injection framework (Dopamine ships ElleKit)
+- ldid (Suggests)                         # Optional on-device ad-hoc signing for prepared clone bundles
+
+## System Frameworks Linked (Zero Third-Party CocoaPods/Libraries Required)
+- Foundation.framework
+- UIKit.framework
+- CoreFoundation.framework
+- Security.framework                      # Keychain secure storage
+- UniformTypeIdentifiers.framework        # Modern iOS document picker (.ipa/.zip)
+- libz.tbd                                # Built-in ZIP inflate/deflate in MCZipArchive
+
+## Build-Time Requirements (macOS / Linux / WSL2 / GitHub Actions)
+- Theos (rootless scheme: THEOS_PACKAGE_SCHEME=rootless)
+- iOS SDK (16.5+ or 18.2 SDK from Xcode 16 / theos/sdks)
+- clang / llvm (arm64 + arm64e)
+- ldid (Procursus ldid2)
+- dpkg-deb (dpkg)
+- python3 (>= 3.10) for repo indexing & automated test suite

@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+JB_PREFIX="/var/jb"
+if [ ! -d "$JB_PREFIX" ]; then
+    JB_PREFIX=""
+fi
+
+APP_PATH="${JB_PREFIX}/Applications/MultiCloneManager.app"
+UICACHE="${JB_PREFIX}/usr/bin/uicache"
+if [ ! -x "$UICACHE" ]; then
+    UICACHE="$(command -v uicache 2>/dev/null || true)"
+fi
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if [ -n "$UICACHE" ] && [ -d "$APP_PATH" ]; then
+        "$UICACHE" -u "$APP_PATH" || true
+    fi
+fi
+
+exit 0

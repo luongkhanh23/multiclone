@@ -1,0 +1,7 @@
+packages/
+.theos/
+.DS_Store
+__pycache__/
+*.pyc
+*.orig
+Releases/*.log.tmp

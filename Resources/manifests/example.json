@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "product": "MultiClone",
+  "version": "1.0.0",
+  "instances": [
+    {
+      "id": "example-record",
+      "source_bundle_id": "com.example.app",
+      "planned_bundle_id": "com.example.app.multiclone.001",
+      "display_name": "Example - Clone 1",
+      "source_ipa": "",
+      "status": "configured"
+    }
+  ]
+}

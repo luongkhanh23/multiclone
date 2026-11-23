@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MultiClone — Sileo Rootless Repository</title>
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --surface: #151922;
+      --border: #252d3d;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --ok: #10b981;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 36px 16px;
+    }
+    .container { max-width: 640px; width: 100%; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .header { display: flex; align-items: center; gap: 16px; }
+    .icon { width: 64px; height: 64px; border-radius: 14px; border: 1px solid var(--border); }
+    h1 { margin: 0 0 4px 0; font-size: 24px; }
+    p { color: var(--muted); line-height: 1.55; margin: 8px 0; }
+    .badge {
+      display: inline-block;
+      background: rgba(16, 185, 129, 0.16);
+      color: var(--ok);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .btn {
+      display: inline-block;
+      width: 100%;
+      text-align: center;
+      padding: 14px 18px;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
+      border-radius: 12px;
+      margin-top: 14px;
+    }
+    code {
+      display: block;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      border-radius: 10px;
+      color: #93c5fd;
+      font-size: 13px;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <section class="card">
+      <div class="header">
+        <img class="icon" src="CydiaIcon.png" alt="MultiClone Icon" />
+        <div>
+          <h1>MultiClone Repository</h1>
+          <span class="badge">iOS 18.2 • Dopamine 3.0.7+ • Rootless (iphoneos-arm64)</span>
+        </div>
+      </div>
+      <p>
+        Kho lưu trữ Sileo miễn phí cho <strong>MultiClone</strong> — công cụ phân tích IPA (Mach-O, DRM, Entitlements),
+        tạo cấu hình clone cô lập và quản lý ứng dụng kèm tính năng <em>Auto Close Previous Managed App</em> an toàn.
+      </p>
+      <a id="sileo-btn" class="btn" href="#">Thêm nguồn này vào Sileo</a>
+    </section>
+
+    <section class="card">
+      <h2 style="margin-top:0;font-size:17px;">URL Kho lưu trữ</h2>
+      <p>Sao chép địa chỉ HTTPS của trang này và dán vào <strong>Sileo → Sources → +</strong>:</p>
+      <code id="repo-url">Đang nhận diện địa chỉ trang hiện tại...</code>
+      <p style="font-size:13px;margin-top:14px;">
+        <strong>Lưu ý minh bạch:</strong> MultiClone miễn phí hoàn toàn, không bypass FairPlay DRM hay cơ chế bảo vệ máy chủ của ứng dụng bên thứ ba.
+      </p>
+    </section>
+  </main>
+  <script>
+    (function () {
+      var baseUrl = window.location.href.replace(/index\.html$/, '').replace(/\/+$/, '') + '/';
+      document.getElementById('repo-url').textContent = baseUrl;
+      document.getElementById('sileo-btn').href = 'sileo://source/' + baseUrl;
+    })();
+  </script>
+</body>
+</html>

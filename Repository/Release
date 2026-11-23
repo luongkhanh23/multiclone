@@ -1,0 +1,21 @@
+Origin: MultiClone Repository
+Label: MultiClone
+Suite: stable
+Version: 1.0
+Codename: iphoneos-arm64
+Architectures: iphoneos-arm64
+Components: main
+Description: Free Rootless iOS 18.2 / Dopamine Repository for MultiClone
+Date: Mon, 23 Nov 2026 16:25:14 +0000
+MD5Sum:
+ d41d8cd98f00b204e9800998ecf8427e 0 Packages
+ 9171e9c1ea75be726be5a77bb2315621 20 Packages.gz
+ 4059d198768f9f8dc9372dc1c54bc3c3 14 Packages.bz2
+SHA1:
+ da39a3ee5e6b4b0d3255bfef95601890afd80709 0 Packages
+ df5c1096bc00499b3a34990b31fc98519587001e 20 Packages.gz
+ 64a543afbb5f4bf728636bdcbbe7a2ed0804adc2 14 Packages.bz2
+SHA256:
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 Packages
+ 7a701a54fb6119599bd8c0b7730f888c86ed840b142e26a08b4ef5ed02ca8a08 20 Packages.gz
+ d3dda84eb03b9738d118eb2be78e246106900493c0ae07819ad60815134a8058 14 Packages.bz2

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>autoCloseEnabled</key><false/>
+    <key>autoCloseOnlyManagedClones</key><true/>
+    <key>confirmBeforeAutoClose</key><true/>
+    <key>launchBehavior</key><integer>2</integer>
+    <key>themeStyle</key><integer>0</integer>
+    <key>accentColorHex</key><string>#3B82F6</string>
+    <key>managedCloneBundleIDs</key><array/>
+</dict>
+</plist>

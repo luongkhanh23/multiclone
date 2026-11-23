@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+DATA_DIR="/var/mobile/Library/MultiClone"
+PREF_FILE="/var/mobile/Library/Preferences/com.multiclone.manager.plist"
+
+# Clean uninstall: remove staging/IPC state on remove; full purge removes MultiClone's own folder only.
+# NEVER touches original applications or data outside /var/mobile/Library/MultiClone.
+if [ "$1" = "remove" ]; then
+    rm -rf "${DATA_DIR}/Staging" "${DATA_DIR}/ipc_state.plist" 2>/dev/null || true
+    echo "[MultiClone] Removed package binaries. User clone data in ${DATA_DIR} kept (use purge to delete)."
+elif [ "$1" = "purge" ]; then
+    rm -rf "${DATA_DIR}" "${PREF_FILE}" 2>/dev/null || true
+    echo "[MultiClone] Purged MultiClone managed directory and preferences cleanly."
+fi
+
+exit 0
