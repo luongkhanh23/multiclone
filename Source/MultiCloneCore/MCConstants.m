@@ -1,6 +1,6 @@
 #import "MCConstants.h"
 
-NSString * const MCProductVersion = @"1.2.0";
+NSString * const MCProductVersion = @"1.2.1";
 NSString * const MCPreferencesDomain = @"com.multiclone.manager";
 NSString * const MCManagerBundleID = @"com.multiclone.manager";
 NSString * const MCSpringBoardBundleID = @"com.apple.springboard";

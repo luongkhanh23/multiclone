@@ -104,7 +104,10 @@
         }
     }
 
-    // 2. Standard jailbreak & MultiClone locations
+    // 2. iCloud Drive (Mobile Documents)
+    addIfExists(@"iCloud Drive", @"Mobile Documents", @"/var/mobile/Library/Mobile Documents/com~apple~CloudDocs");
+
+    // 3. Standard jailbreak & MultiClone locations
     addIfExists(@"MultiClone Exports", MCExportsDirectory(), MCExportsDirectory());
     addIfExists(@"/var/mobile/Downloads", @"Thư mục Downloads cục bộ", @"/var/mobile/Downloads");
     addIfExists(@"/var/mobile/Documents", @"Thư mục Documents cục bộ", @"/var/mobile/Documents");

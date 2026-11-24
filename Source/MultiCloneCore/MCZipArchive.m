@@ -5,6 +5,8 @@
 static const uint32_t kZipLocalHeaderSig   = 0x04034b50;
 static const uint32_t kZipCentralDirSig    = 0x02014b50;
 static const uint32_t kZipEndOfCentralSig  = 0x06054b50;
+static const uint32_t kZip64LocatorSig     = 0x07064b50;
+static const uint32_t kZip64EOCDSig        = 0x06064b50;
 static const uint16_t kZipMethodStore      = 0;
 static const uint16_t kZipMethodDeflate    = 8;
 
@@ -14,6 +16,10 @@ static inline uint16_t MCReadLE16(const uint8_t *p) {
 
 static inline uint32_t MCReadLE32(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static inline uint64_t MCReadLE64(const uint8_t *p) {
+    return (uint64_t)MCReadLE32(p) | ((uint64_t)MCReadLE32(p + 4) << 32);
 }
 
 static inline void MCAppendLE16(NSMutableData *buf, uint16_t v) {
@@ -92,24 +98,44 @@ static BOOL MCIsSafeRelativeZipPath(NSString *entryPath) {
             return nil;
         }
 
-        uint16_t entryCount = MCReadLE16(bytes + eocdOffset + 10);
-        uint32_t cdSize = MCReadLE32(bytes + eocdOffset + 12);
-        uint32_t cdOffset = MCReadLE32(bytes + eocdOffset + 16);
+        uint64_t entryCount = MCReadLE16(bytes + eocdOffset + 10);
+        uint64_t cdSize = MCReadLE32(bytes + eocdOffset + 12);
+        uint64_t cdOffset = MCReadLE32(bytes + eocdOffset + 16);
 
-        if ((unsigned long long)cdOffset + (unsigned long long)cdSize > fileSize) {
+        // Support ZIP64 archives (common for large IPAs > 4GB or tools emitting ZIP64 EOCD)
+        if ((entryCount == 0xFFFF || cdSize == 0xFFFFFFFF || cdOffset == 0xFFFFFFFF) && eocdOffset >= 20) {
+            if (MCReadLE32(bytes + eocdOffset - 20) == kZip64LocatorSig) {
+                uint64_t zip64EOCDOff = MCReadLE64(bytes + eocdOffset - 12);
+                if (zip64EOCDOff + 56 <= fileSize) {
+                    [fh seekToFileOffset:zip64EOCDOff];
+                    NSData *z64 = [fh readDataOfLength:56];
+                    if (z64.length == 56) {
+                        const uint8_t *z64b = (const uint8_t *)z64.bytes;
+                        if (MCReadLE32(z64b) == kZip64EOCDSig) {
+                            entryCount = MCReadLE64(z64b + 32);
+                            cdSize = MCReadLE64(z64b + 40);
+                            cdOffset = MCReadLE64(z64b + 48);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (cdOffset + cdSize > fileSize || cdSize > 256 * 1024 * 1024) {
             [fh closeFile];
             if (error) *error = MCMakeError(MCErrorCodeIPACorrupted, @"Bảng mục lục ZIP (Central Directory) không hợp lệ.");
             return nil;
         }
 
         [fh seekToFileOffset:cdOffset];
-        NSData *cdData = [fh readDataOfLength:cdSize];
+        NSData *cdData = [fh readDataOfLength:(NSUInteger)cdSize];
         [fh closeFile];
 
         const uint8_t *cdBytes = (const uint8_t *)cdData.bytes;
         NSUInteger pos = 0;
-        NSMutableArray<MCZipEntry *> *entries = [NSMutableArray arrayWithCapacity:entryCount];
-        NSMutableDictionary<NSString *, MCZipEntry *> *entryMap = [NSMutableDictionary dictionaryWithCapacity:entryCount];
+        NSUInteger cap = (NSUInteger)MIN(entryCount, (uint64_t)100000);
+        NSMutableArray<MCZipEntry *> *entries = [NSMutableArray arrayWithCapacity:cap];
+        NSMutableDictionary<NSString *, MCZipEntry *> *entryMap = [NSMutableDictionary dictionaryWithCapacity:cap];
 
         while (pos + 46 <= cdData.length) {
             if (MCReadLE32(cdBytes + pos) != kZipCentralDirSig) {
@@ -117,15 +143,35 @@ static BOOL MCIsSafeRelativeZipPath(NSString *entryPath) {
             }
             uint16_t method = MCReadLE16(cdBytes + pos + 10);
             uint32_t crc = MCReadLE32(cdBytes + pos + 16);
-            uint32_t compSize = MCReadLE32(cdBytes + pos + 20);
-            uint32_t uncompSize = MCReadLE32(cdBytes + pos + 24);
+            uint64_t compSize = MCReadLE32(cdBytes + pos + 20);
+            uint64_t uncompSize = MCReadLE32(cdBytes + pos + 24);
             uint16_t nameLen = MCReadLE16(cdBytes + pos + 28);
             uint16_t extraLen = MCReadLE16(cdBytes + pos + 30);
             uint16_t commentLen = MCReadLE16(cdBytes + pos + 32);
-            uint32_t localOffset = MCReadLE32(cdBytes + pos + 42);
+            uint64_t localOffset = MCReadLE32(cdBytes + pos + 42);
 
             if (pos + 46 + nameLen + extraLen + commentLen > cdData.length) {
                 break;
+            }
+
+            // Parse ZIP64 extra field (tag 0x0001) if any field is 0xFFFFFFFF
+            if (extraLen >= 4 && (uncompSize == 0xFFFFFFFF || compSize == 0xFFFFFFFF || localOffset == 0xFFFFFFFF)) {
+                const uint8_t *ex = cdBytes + pos + 46 + nameLen;
+                NSUInteger ep = 0;
+                while (ep + 4 <= extraLen) {
+                    uint16_t tag = MCReadLE16(ex + ep);
+                    uint16_t dlen = MCReadLE16(ex + ep + 2);
+                    ep += 4;
+                    if (ep + dlen > extraLen) break;
+                    if (tag == 0x0001) {
+                        NSUInteger zp = ep;
+                        if (uncompSize == 0xFFFFFFFF && zp + 8 <= ep + dlen) { uncompSize = MCReadLE64(ex + zp); zp += 8; }
+                        if (compSize == 0xFFFFFFFF && zp + 8 <= ep + dlen)   { compSize = MCReadLE64(ex + zp); zp += 8; }
+                        if (localOffset == 0xFFFFFFFF && zp + 8 <= ep + dlen){ localOffset = MCReadLE64(ex + zp); }
+                        break;
+                    }
+                    ep += dlen;
+                }
             }
 
             NSString *name = [[NSString alloc] initWithBytes:(cdBytes + pos + 46)
@@ -135,6 +181,9 @@ static BOOL MCIsSafeRelativeZipPath(NSString *entryPath) {
                 name = [[NSString alloc] initWithBytes:(cdBytes + pos + 46)
                                                 length:nameLen
                                               encoding:NSISOLatin1StringEncoding];
+            }
+            if ([name hasPrefix:@"./"]) {
+                name = [name substringFromIndex:2];
             }
             if (name.length > 0) {
                 MCZipEntry *entry = [[MCZipEntry alloc] init];
@@ -209,6 +258,9 @@ static BOOL MCIsSafeRelativeZipPath(NSString *entryPath) {
 
         if (entry.compressionMethod == kZipMethodStore) {
             return compressed;
+        }
+        if (entry.uncompressedSize == 0 && compressed.length == 0) {
+            return [NSData data];
         }
         if (entry.compressionMethod != kZipMethodDeflate) {
             if (error) *error = MCMakeError(MCErrorCodeIPACorrupted,

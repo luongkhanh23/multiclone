@@ -1,6 +1,6 @@
 Package: com.multiclone.manager
 Name: MultiClone
-Version: 1.2.0
+Version: 1.2.1
 Architecture: iphoneos-arm64
 Description: Rootless iOS 18.2 / Dopamine multi-instance manager with IPA inspector (Mach-O/DRM/entitlements), isolated clone configurations, Dark Mode Manager app, and safe opt-in Auto Close Previous Managed App. Free and open; does not bypass DRM or third-party protections.
 Maintainer: MultiClone Community

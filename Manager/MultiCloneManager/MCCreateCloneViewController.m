@@ -490,13 +490,24 @@
 
 #pragma mark - Source Picking (Installed App / Fixed Document Picker / Local Scan)
 
+- (void)mc_showInspectionError:(NSString *)title path:(nullable NSString *)path error:(nullable NSError *)err {
+    NSString *reason = err.localizedDescription ?: @"Không rõ nguyên nhân.";
+    NSString *fullMsg = [NSString stringWithFormat:@"%@\n\nTệp: %@", reason, path ?: @"(không có)"];
+    self.selectedFileLabel.text = [NSString stringWithFormat:@"Lỗi: %@", reason];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:fullMsg
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Đóng" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)loadInstalledAppInfo:(MCInstalledAppInfo *)appInfo {
     if (!self.isViewLoaded) {
         self.pendingAppToLoad = appInfo;
         return;
     }
     if (!appInfo || appInfo.bundlePath.length == 0) {
-        self.selectedFileLabel.text = @"Không đọc được đường dẫn .app của ứng dụng đã chọn.";
+        [self mc_showInspectionError:@"Không đọc được ứng dụng" path:appInfo.bundleID error:MCMakeError(MCErrorCodeIOFailure, @"Không lấy được đường dẫn .app từ hệ thống.")];
         return;
     }
     self.selectedFileLabel.text = [NSString stringWithFormat:@"Đang phân tích trực tiếp ứng dụng gốc: %@...", appInfo.displayName];
@@ -508,8 +519,8 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.inspectSpinner stopAnimating];
             if (!report) {
-                self.selectedFileLabel.text = [NSString stringWithFormat:@"Lỗi đọc ứng dụng gốc: %@", err.localizedDescription];
                 [self mc_updateUIForReport:nil];
+                [self mc_showInspectionError:@"Lỗi đọc ứng dụng gốc" path:appInfo.bundlePath error:err];
                 return;
             }
             [self mc_updateUIForReport:report];
@@ -533,8 +544,8 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.inspectSpinner stopAnimating];
             if (!report) {
-                self.selectedFileLabel.text = [NSString stringWithFormat:@"Lỗi phân tích IPA: %@", err.localizedDescription];
                 [self mc_updateUIForReport:nil];
+                [self mc_showInspectionError:@"Lỗi đọc tệp IPA" path:ipaPath error:err];
                 return;
             }
             [self mc_updateUIForReport:report];
@@ -569,20 +580,42 @@
     NSURL *url = urls.firstObject;
     if (!url) return;
 
-    BOOL scoped = [url startAccessingSecurityScopedResource];
-    NSString *localCopy = [MCStagingDirectory() stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"import_%@_%@", [[NSUUID UUID].UUIDString substringToIndex:8], url.lastPathComponent ?: @"app.ipa"]];
-    NSError *copyErr = nil;
-    NSFileManager *fm = [NSFileManager defaultManager];
-    [fm removeItemAtPath:localCopy error:nil];
-    BOOL copied = [fm copyItemAtPath:url.path toPath:localCopy error:&copyErr];
-    if (scoped) [url stopAccessingSecurityScopedResource];
+    self.selectedFileLabel.text = [NSString stringWithFormat:@"Đang nhận tệp từ Files: %@...", url.lastPathComponent];
+    [self.inspectSpinner startAnimating];
 
-    if (copied) {
-        [self loadIPAFileAtPath:localCopy];
-    } else {
-        [self loadIPAFileAtPath:url.path];
-    }
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        BOOL scoped = [url startAccessingSecurityScopedResource];
+        __block NSString *usablePath = nil;
+        __block NSError *coordErr = nil;
+
+        NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
+        [coordinator coordinateReadingItemAtURL:url options:0 error:&coordErr byAccessor:^(NSURL *newURL) {
+            NSString *localCopy = [MCStagingDirectory() stringByAppendingPathComponent:
+                [NSString stringWithFormat:@"import_%@_%@", [[NSUUID UUID].UUIDString substringToIndex:8], newURL.lastPathComponent ?: @"app.ipa"]];
+            NSFileManager *fm = [NSFileManager defaultManager];
+            [fm removeItemAtPath:localCopy error:nil];
+            NSError *cpErr = nil;
+            if ([fm copyItemAtURL:newURL toURL:[NSURL fileURLWithPath:localCopy] error:&cpErr]) {
+                usablePath = localCopy;
+            } else if ([fm isReadableFileAtPath:newURL.path]) {
+                usablePath = newURL.path;
+            } else {
+                coordErr = cpErr;
+            }
+        }];
+        if (scoped) [url stopAccessingSecurityScopedResource];
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.inspectSpinner stopAnimating];
+            if (usablePath.length > 0) {
+                [self loadIPAFileAtPath:usablePath];
+            } else {
+                [self mc_showInspectionError:@"Không thể đọc tệp từ Files"
+                                        path:url.path
+                                       error:(coordErr ?: MCMakeError(MCErrorCodeIOFailure, @"Hãy dùng nút 'Duyệt IPA (Tệp / Downloads)' tích hợp để mở trực tiếp."))];
+            }
+        });
+    });
 }
 
 - (void)mc_scanLocalIPAs {

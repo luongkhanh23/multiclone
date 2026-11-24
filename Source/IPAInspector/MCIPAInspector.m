@@ -89,7 +89,9 @@
 
     MCZipEntry *infoEntry = nil;
     for (MCZipEntry *e in archive.entries) {
-        if ([e.path hasPrefix:@"Payload/"] && [e.path hasSuffix:@".app/Info.plist"]) {
+        if ([e.path hasPrefix:@"__MACOSX/"]) continue;
+        NSString *low = e.path.lowercaseString;
+        if ([low hasPrefix:@"payload/"] && [low hasSuffix:@".app/info.plist"]) {
             NSArray *parts = [e.path componentsSeparatedByString:@"/"];
             if (parts.count == 3) {
                 infoEntry = e;
