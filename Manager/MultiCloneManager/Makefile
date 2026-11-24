@@ -12,6 +12,7 @@ MultiCloneManager_FILES = \
 	MCHomeViewController.m \
 	MCCreateCloneViewController.m \
 	MCCloneDetailViewController.m \
+	MCFileBrowserViewController.m \
 	MCSettingsViewController.m \
 	MCLogViewerViewController.m \
 	../../Source/MultiCloneCore/MCConstants.m \

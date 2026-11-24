@@ -190,15 +190,17 @@
 
     // Executable Mach-O inspection (architectures, FairPlay DRM cryptid, embedded entitlements)
     if (report.executableName.length > 0) {
-        NSString *execZipPath = [appPrefix stringByAppendingString:report.executableName];
-        NSData *execData = [archive dataForPath:execZipPath error:nil];
-        if (execData.length > 0) {
-            MCMachOInspectionResult *macho = [MCMachOInspector inspectMachOData:execData];
-            report.architectures = macho.architectures;
-            report.isFairPlayEncrypted = macho.isEncrypted;
-            report.encryptionCryptID = macho.cryptID;
-            if (macho.entitlements) {
-                report.entitlements = macho.entitlements;
+        @autoreleasepool {
+            NSString *execZipPath = [appPrefix stringByAppendingString:report.executableName];
+            NSData *execData = [archive dataForPath:execZipPath error:nil];
+            if (execData.length > 0) {
+                MCMachOInspectionResult *macho = [MCMachOInspector inspectMachOData:execData];
+                report.architectures = macho.architectures;
+                report.isFairPlayEncrypted = macho.isEncrypted;
+                report.encryptionCryptID = macho.cryptID;
+                if (macho.entitlements) {
+                    report.entitlements = macho.entitlements;
+                }
             }
         }
     }

@@ -192,6 +192,28 @@
     });
 }
 
+/// Recursively normalizes write/execute permissions on a staged .app copy strictly inside Staging/.
+- (void)mc_normalizeStagedBundlePermissionsAtPath:(NSString *)stagedAppPath {
+    if (!MCIsPathStrictlyInsideDirectory(stagedAppPath, MCStagingDirectory())) return;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm setAttributes:@{NSFilePosixPermissions: @(0755)} ofItemAtPath:stagedAppPath error:nil];
+    NSDirectoryEnumerator *en = [fm enumeratorAtPath:stagedAppPath];
+    for (NSString *rel in en) {
+        @autoreleasepool {
+            NSString *full = [stagedAppPath stringByAppendingPathComponent:rel];
+            NSDictionary *attrs = [fm attributesOfItemAtPath:full error:nil];
+            NSString *type = attrs[NSFileType];
+            if ([type isEqualToString:NSFileTypeDirectory]) {
+                [fm setAttributes:@{NSFilePosixPermissions: @(0755)} ofItemAtPath:full error:nil];
+            } else if ([type isEqualToString:NSFileTypeRegular]) {
+                NSNumber *cur = attrs[NSFilePosixPermissions];
+                BOOL isExec = cur && (cur.unsignedShortValue & 0111) != 0;
+                [fm setAttributes:@{NSFilePosixPermissions: @(isExec ? 0755 : 0644)} ofItemAtPath:full error:nil];
+            }
+        }
+    }
+}
+
 /// Prepares a clean Payload/<App>.app directory inside baseStagingDir from either an .ipa or installed .app bundle.
 - (nullable NSString *)mc_prepareSourceAppInStaging:(NSString *)baseStagingDir
                                              report:(MCIPAInspectionReport *)report
@@ -214,6 +236,7 @@
         if (![fm copyItemAtPath:report.sourceAppBundlePath toPath:destApp error:error]) {
             return nil;
         }
+        [self mc_normalizeStagedBundlePermissionsAtPath:destApp];
         [self mc_reportProgress:progressHandler fraction:(pBase + pSpan) stage:@"Đã trích xuất bản sao sạch từ ứng dụng gốc."];
         return destApp;
     }

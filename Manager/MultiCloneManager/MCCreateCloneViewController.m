@@ -1,6 +1,7 @@
 #import "MCCreateCloneViewController.h"
 #import "MCTheme.h"
 #import "MCCloneDetailViewController.h"
+#import "MCFileBrowserViewController.h"
 #import "../../Source/MultiCloneCore/MCConstants.h"
 #import "../../Source/MultiCloneCore/MCModels.h"
 #import "../../Source/MultiCloneCore/MCPrivateAPIBridge.h"
@@ -268,15 +269,15 @@
     ipaBtnRow.spacing = 10;
     ipaBtnRow.distribution = UIStackViewDistributionFillEqually;
 
-    self.pickIPAButton = [self mc_makeButtonWithTitle:@"Chọn tệp IPA (Tệp)"
+    self.pickIPAButton = [self mc_makeButtonWithTitle:@"Duyệt IPA (Tệp / Downloads)"
                                            background:[MCTheme elevatedSurfaceColor]
-                                               action:@selector(mc_pickIPAFromFiles)];
+                                               action:@selector(mc_scanLocalIPAs)];
     self.pickIPAButton.layer.borderWidth = 1.0;
-    self.pickIPAButton.layer.borderColor = [MCTheme borderColor].CGColor;
+    self.pickIPAButton.layer.borderColor = [MCTheme accentColor].CGColor;
 
-    self.scanLocalIPAButton = [self mc_makeButtonWithTitle:@"Quét IPA trên máy"
+    self.scanLocalIPAButton = [self mc_makeButtonWithTitle:@"Chọn từ Files iOS"
                                                 background:[MCTheme elevatedSurfaceColor]
-                                                    action:@selector(mc_scanLocalIPAs)];
+                                                    action:@selector(mc_pickIPAFromFiles)];
     self.scanLocalIPAButton.layer.borderWidth = 1.0;
     self.scanLocalIPAButton.layer.borderColor = [MCTheme borderColor].CGColor;
 
@@ -553,18 +554,10 @@
 }
 
 - (void)mc_pickIPAFromFiles {
-    // Include UTTypeItem + explicit .ipa/.tipa extension UTTypes so .ipa files are ALWAYS selectable on iOS 15-18.2
-    NSMutableArray<UTType *> *types = [NSMutableArray array];
-    UTType *ipaUT = [UTType typeWithFilenameExtension:@"ipa"];
-    UTType *tipaUT = [UTType typeWithFilenameExtension:@"tipa"];
-    if (ipaUT) [types addObject:ipaUT];
-    if (tipaUT) [types addObject:tipaUT];
-    [types addObject:UTTypeZIP];
-    [types addObject:UTTypeArchive];
-    [types addObject:UTTypeItem];
-    [types addObject:UTTypeData];
-
-    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:YES];
+    // Use asCopy:NO (open-in-place) with UTTypeItem so unsandboxed rootless apps
+    // without a sandbox container can tap and open .ipa files in iOS Files reliably.
+    NSArray<UTType *> *types = @[UTTypeItem, UTTypeData, UTTypeArchive];
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:NO];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     picker.shouldShowFileExtensions = YES;
@@ -588,63 +581,19 @@
     if (copied) {
         [self loadIPAFileAtPath:localCopy];
     } else {
-        // Fallback: inspect original path directly if unsandboxed access works
         [self loadIPAFileAtPath:url.path];
     }
 }
 
 - (void)mc_scanLocalIPAs {
-    NSArray<NSString *> *scanDirs = @[
-        @"/var/mobile/Downloads",
-        @"/var/mobile/Documents",
-        @"/var/mobile/Media/Downloads",
-        MCExportsDirectory()
-    ];
-    NSMutableArray<NSString *> *found = [NSMutableArray array];
-    NSFileManager *fm = [NSFileManager defaultManager];
-
-    for (NSString *dir in scanDirs) {
-        NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil];
-        for (NSString *name in items) {
-            NSString *low = name.lowercaseString;
-            if ([low hasSuffix:@".ipa"] || [low hasSuffix:@".tipa"]) {
-                [found addObject:[dir stringByAppendingPathComponent:name]];
-            }
-        }
-    }
-
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Tệp IPA trên máy"
-                                                                   message:(found.count > 0 ? @"Chọn tệp .ipa muốn phân tích:" : @"Không thấy tệp .ipa trong Downloads/Documents. Bạn có thể nhập đường dẫn trực tiếp.")
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSString *path in found) {
-        [sheet addAction:[UIAlertAction actionWithTitle:path.lastPathComponent style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-            (void)a;
-            [self loadIPAFileAtPath:path];
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Nhập đường dẫn tệp .ipa thủ công..." style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        (void)a;
-        [self mc_promptManualIPAPath];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Hủy" style:UIAlertActionStyleCancel handler:nil]];
-    sheet.popoverPresentationController.sourceView = self.scanLocalIPAButton;
-    [self presentViewController:sheet animated:YES completion:nil];
-}
-
-- (void)mc_promptManualIPAPath {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Nhập đường dẫn tệp .ipa"
-                                                                   message:@"Ví dụ: /var/mobile/Downloads/TikTok.ipa"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-        tf.placeholder = @"/var/mobile/Downloads/app.ipa";
-    }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Phân tích" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        (void)a;
-        NSString *p = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (p.length > 0) [self loadIPAFileAtPath:p];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Hủy" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+    MCFileBrowserViewController *browser = [[MCFileBrowserViewController alloc] initWithDirectoryPath:nil title:@"Chọn tệp IPA trên máy"];
+    __weak typeof(self) weakSelf = self;
+    browser.onSelectIPAPath = ^(NSString *ipaPath) {
+        [weakSelf loadIPAFileAtPath:ipaPath];
+    };
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:browser];
+    nav.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    [self presentViewController:nav animated:YES completion:nil];
 }
 
 #pragma mark - Inspection & Form State

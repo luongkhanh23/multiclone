@@ -6,16 +6,16 @@ Codename: iphoneos-arm64
 Architectures: iphoneos-arm64
 Components: main
 Description: Free Rootless iOS 18.2 / Dopamine Repository for MultiClone
-Date: Mon, 23 Nov 2026 17:42:35 +0000
+Date: Mon, 23 Nov 2026 18:07:41 +0000
 MD5Sum:
- 4edcf7e616d465b935a2ed0a5386f3d7 980 Packages
- a568e7c3e31545df79c9ac12a1fe71bb 612 Packages.gz
- 245ebefc2e97e166a8e96e3a5870c071 676 Packages.bz2
+ 48b9767f3df3a733c477be6ddcfafc37 980 Packages
+ 0d675dad28bffaa111b380d1cb40e162 607 Packages.gz
+ 87e70639de52d55597e3a649e94faea0 673 Packages.bz2
 SHA1:
- c0769764628e04d5bd001ec0b6123e85ba60cb29 980 Packages
- 1e49b3e954f5bf09b66487ed204a3d375c577874 612 Packages.gz
- dd7e45031502a370716dbf9db6d3ac98a0e4d3c3 676 Packages.bz2
+ 2f1cfd78ecd243eb92fd800000cfaa772f8e81a2 980 Packages
+ 2f0a669d27c0096325cdb830edbd946cd09b7ce6 607 Packages.gz
+ 9218494821598717bb8bfe06f9c9e4378edad7c0 673 Packages.bz2
 SHA256:
- f321e922d37b6163e2e2f9e09f6ddde80a3f0d9b7efba20311a52c1ba8cc0136 980 Packages
- 390d7aa48e568b951e2a722160a055bfc867540dce927f52202fbf150074e406 612 Packages.gz
- 84317238fe57e426ef26c6ed2dca3b69c77e99cf19b5edf1d80943bbbed51e20 676 Packages.bz2
+ 3dd097fd3b98a2cdd8e693a38699b5ac096abb73cb200c07c3daed14945ab6ac 980 Packages
+ b3740f27219351fe7c14c1940159ebe25676cc58f126d0da44af67a834b964c7 607 Packages.gz
+ 5ff6e7a4e8aef94ce0d2c36f8524a0479536da0d4ca4f53123f55755f62e5945 673 Packages.bz2

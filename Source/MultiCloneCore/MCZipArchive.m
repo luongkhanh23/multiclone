@@ -303,6 +303,14 @@ static BOOL MCIsSafeRelativeZipPath(NSString *entryPath) {
                 if (![content writeToFile:destPath options:NSDataWritingAtomic error:error]) {
                     return NO;
                 }
+                // Preserve executable bit for Mach-O binaries (MH_MAGIC_64 / FAT_MAGIC)
+                if (content.length >= 4) {
+                    uint32_t magic = 0;
+                    [content getBytes:&magic length:4];
+                    if (magic == 0xfeedfacf || magic == 0xfeedface || magic == 0xbebafeca || magic == 0xcafebabe) {
+                        [fm setAttributes:@{NSFilePosixPermissions: @(0755)} ofItemAtPath:destPath error:nil];
+                    }
+                }
             }
             idx++;
             if (progressHandler && (idx % 16 == 0 || idx == total)) {
@@ -319,7 +327,7 @@ static BOOL MCIsSafeRelativeZipPath(NSString *entryPath) {
     memset(&strm, 0, sizeof(strm));
     strm.next_in = (Bytef *)input.bytes;
     strm.avail_in = (uInt)input.length;
-    if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+    if (deflateInit2(&strm, Z_BEST_SPEED, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
         return nil;
     }
     NSMutableData *out = [NSMutableData dataWithCapacity:(input.length / 2 + 128)];
@@ -342,96 +350,154 @@ static BOOL MCIsSafeRelativeZipPath(NSString *entryPath) {
           fromRootDirectory:(NSString *)rootDirectory
                       error:(NSError **)error {
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *base = [rootDirectory stringByStandardizingPath];
-    if (![base hasSuffix:@"/"]) base = [base stringByAppendingString:@"/"];
-
     NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:rootDirectory];
     if (!enumerator) {
         if (error) *error = MCMakeError(MCErrorCodeIOFailure, @"Không thể duyệt thư mục để đóng gói IPA.");
         return NO;
     }
 
-    NSMutableData *archiveData = [NSMutableData data];
-    NSMutableData *centralDir = [NSMutableData data];
-    uint16_t entryCount = 0;
-
-    for (NSString *relPath in enumerator) {
-        @autoreleasepool {
-            NSString *fullPath = [rootDirectory stringByAppendingPathComponent:relPath];
-            BOOL isDir = NO;
-            if (![fm fileExistsAtPath:fullPath isDirectory:&isDir] || isDir) {
-                continue;
-            }
-            NSData *raw = [NSData dataWithContentsOfFile:fullPath options:0 error:error];
-            if (!raw) return NO;
-
-            uint32_t crc = (uint32_t)crc32(0L, Z_NULL, 0);
-            if (raw.length > 0) {
-                crc = (uint32_t)crc32(crc, (const Bytef *)raw.bytes, (uInt)raw.length);
-            }
-
-            NSData *compressed = [self mc_deflateRaw:raw];
-            uint16_t method = kZipMethodDeflate;
-            if (!compressed || compressed.length >= raw.length) {
-                compressed = raw;
-                method = kZipMethodStore;
-            }
-
-            NSData *nameData = [relPath dataUsingEncoding:NSUTF8StringEncoding];
-            uint32_t localOffset = (uint32_t)archiveData.length;
-
-            // Local file header
-            MCAppendLE32(archiveData, kZipLocalHeaderSig);
-            MCAppendLE16(archiveData, 20);
-            MCAppendLE16(archiveData, 0);
-            MCAppendLE16(archiveData, method);
-            MCAppendLE16(archiveData, 0);
-            MCAppendLE16(archiveData, 0);
-            MCAppendLE32(archiveData, crc);
-            MCAppendLE32(archiveData, (uint32_t)compressed.length);
-            MCAppendLE32(archiveData, (uint32_t)raw.length);
-            MCAppendLE16(archiveData, (uint16_t)nameData.length);
-            MCAppendLE16(archiveData, 0);
-            [archiveData appendData:nameData];
-            [archiveData appendData:compressed];
-
-            // Central directory entry
-            MCAppendLE32(centralDir, kZipCentralDirSig);
-            MCAppendLE16(centralDir, 20);
-            MCAppendLE16(centralDir, 20);
-            MCAppendLE16(centralDir, 0);
-            MCAppendLE16(centralDir, method);
-            MCAppendLE16(centralDir, 0);
-            MCAppendLE16(centralDir, 0);
-            MCAppendLE32(centralDir, crc);
-            MCAppendLE32(centralDir, (uint32_t)compressed.length);
-            MCAppendLE32(centralDir, (uint32_t)raw.length);
-            MCAppendLE16(centralDir, (uint16_t)nameData.length);
-            MCAppendLE16(centralDir, 0);
-            MCAppendLE16(centralDir, 0);
-            MCAppendLE16(centralDir, 0);
-            MCAppendLE16(centralDir, 0);
-            MCAppendLE32(centralDir, 0);
-            MCAppendLE32(centralDir, localOffset);
-            [centralDir appendData:nameData];
-            entryCount++;
-        }
+    NSString *tmpPath = [archivePath stringByAppendingString:@".tmp"];
+    [fm removeItemAtPath:tmpPath error:nil];
+    if (![fm createFileAtPath:tmpPath contents:nil attributes:nil]) {
+        if (error) *error = MCMakeError(MCErrorCodeIOFailure, @"Không thể tạo tệp IPA tạm trên bộ nhớ.");
+        return NO;
     }
 
-    uint32_t cdOffset = (uint32_t)archiveData.length;
-    [archiveData appendData:centralDir];
+    NSFileHandle *outFH = [NSFileHandle fileHandleForWritingAtPath:tmpPath];
+    if (!outFH) {
+        [fm removeItemAtPath:tmpPath error:nil];
+        if (error) *error = MCMakeError(MCErrorCodeIOFailure, @"Không thể mở luồng ghi tệp IPA.");
+        return NO;
+    }
 
-    // End of central directory
-    MCAppendLE32(archiveData, kZipEndOfCentralSig);
-    MCAppendLE16(archiveData, 0);
-    MCAppendLE16(archiveData, 0);
-    MCAppendLE16(archiveData, entryCount);
-    MCAppendLE16(archiveData, entryCount);
-    MCAppendLE32(archiveData, (uint32_t)centralDir.length);
-    MCAppendLE32(archiveData, cdOffset);
-    MCAppendLE16(archiveData, 0);
+    NSMutableData *centralDir = [NSMutableData data];
+    uint64_t currentOffset = 0;
+    uint32_t entryCount = 0;
 
-    return [archiveData writeToFile:archivePath options:NSDataWritingAtomic error:error];
+    @try {
+        for (NSString *relPath in enumerator) {
+            @autoreleasepool {
+                NSString *fullPath = [rootDirectory stringByAppendingPathComponent:relPath];
+                NSDictionary *attrs = [fm attributesOfItemAtPath:fullPath error:nil];
+                NSString *fileType = attrs[NSFileType];
+                if (![fileType isEqualToString:NSFileTypeRegular]) {
+                    continue;
+                }
+
+                NSData *raw = [NSData dataWithContentsOfFile:fullPath options:NSDataReadingMappedIfSafe error:error];
+                if (!raw) {
+                    [outFH closeFile];
+                    [fm removeItemAtPath:tmpPath error:nil];
+                    return NO;
+                }
+
+                uint32_t crc = (uint32_t)crc32(0L, Z_NULL, 0);
+                if (raw.length > 0) {
+                    const uint8_t *ptr = (const uint8_t *)raw.bytes;
+                    NSUInteger remaining = raw.length;
+                    while (remaining > 0) {
+                        uInt step = (uInt)MIN(remaining, (NSUInteger)(16 * 1024 * 1024));
+                        crc = (uint32_t)crc32(crc, ptr, step);
+                        ptr += step;
+                        remaining -= step;
+                    }
+                }
+
+                // Store large media/already-compressed files directly to keep memory low and speed fast
+                NSString *ext = relPath.pathExtension.lowercaseString;
+                BOOL alreadyCompressed = ([ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] ||
+                                          [ext isEqualToString:@"jpeg"] || [ext isEqualToString:@"mp4"] ||
+                                          [ext isEqualToString:@"zip"] || [ext isEqualToString:@"car"] ||
+                                          raw.length > 24 * 1024 * 1024);
+
+                NSData *payload = raw;
+                uint16_t method = kZipMethodStore;
+                if (!alreadyCompressed && raw.length > 128) {
+                    NSData *compressed = [self mc_deflateRaw:raw];
+                    if (compressed && compressed.length < raw.length) {
+                        payload = compressed;
+                        method = kZipMethodDeflate;
+                    }
+                }
+
+                NSData *nameData = [relPath dataUsingEncoding:NSUTF8StringEncoding];
+                uint32_t localOffset = (uint32_t)currentOffset;
+
+                NSMutableData *lh = [NSMutableData dataWithCapacity:(30 + nameData.length)];
+                MCAppendLE32(lh, kZipLocalHeaderSig);
+                MCAppendLE16(lh, 20);
+                MCAppendLE16(lh, 0);
+                MCAppendLE16(lh, method);
+                MCAppendLE16(lh, 0);
+                MCAppendLE16(lh, 0);
+                MCAppendLE32(lh, crc);
+                MCAppendLE32(lh, (uint32_t)payload.length);
+                MCAppendLE32(lh, (uint32_t)raw.length);
+                MCAppendLE16(lh, (uint16_t)nameData.length);
+                MCAppendLE16(lh, 0);
+                [lh appendData:nameData];
+
+                [outFH writeData:lh];
+                if (payload.length > 0) {
+                    // Stream payload in 4MB slices so peak RAM stays tiny
+                    NSUInteger written = 0;
+                    while (written < payload.length) {
+                        NSUInteger chunkLen = MIN(payload.length - written, (NSUInteger)(4 * 1024 * 1024));
+                        NSData *slice = [NSData dataWithBytesNoCopy:((uint8_t *)payload.bytes + written)
+                                                             length:chunkLen
+                                                       freeWhenDone:NO];
+                        [outFH writeData:slice];
+                        written += chunkLen;
+                    }
+                }
+                currentOffset += lh.length + payload.length;
+
+                MCAppendLE32(centralDir, kZipCentralDirSig);
+                MCAppendLE16(centralDir, 20);
+                MCAppendLE16(centralDir, 20);
+                MCAppendLE16(centralDir, 0);
+                MCAppendLE16(centralDir, method);
+                MCAppendLE16(centralDir, 0);
+                MCAppendLE16(centralDir, 0);
+                MCAppendLE32(centralDir, crc);
+                MCAppendLE32(centralDir, (uint32_t)payload.length);
+                MCAppendLE32(centralDir, (uint32_t)raw.length);
+                MCAppendLE16(centralDir, (uint16_t)nameData.length);
+                MCAppendLE16(centralDir, 0);
+                MCAppendLE16(centralDir, 0);
+                MCAppendLE16(centralDir, 0);
+                MCAppendLE16(centralDir, 0);
+                MCAppendLE32(centralDir, 0);
+                MCAppendLE32(centralDir, localOffset);
+                [centralDir appendData:nameData];
+                entryCount++;
+            }
+        }
+
+        uint32_t cdOffset = (uint32_t)currentOffset;
+        [outFH writeData:centralDir];
+
+        uint16_t eocdCount = (uint16_t)MIN(entryCount, (uint32_t)0xFFFF);
+        NSMutableData *eocd = [NSMutableData dataWithCapacity:22];
+        MCAppendLE32(eocd, kZipEndOfCentralSig);
+        MCAppendLE16(eocd, 0);
+        MCAppendLE16(eocd, 0);
+        MCAppendLE16(eocd, eocdCount);
+        MCAppendLE16(eocd, eocdCount);
+        MCAppendLE32(eocd, (uint32_t)centralDir.length);
+        MCAppendLE32(eocd, cdOffset);
+        MCAppendLE16(eocd, 0);
+        [outFH writeData:eocd];
+        [outFH closeFile];
+
+        [fm removeItemAtPath:archivePath error:nil];
+        return [fm moveItemAtPath:tmpPath toPath:archivePath error:error];
+    } @catch (NSException *ex) {
+        [outFH closeFile];
+        [fm removeItemAtPath:tmpPath error:nil];
+        if (error) *error = MCMakeError(MCErrorCodeIOFailure, ex.reason ?: @"Lỗi đóng gói IPA.");
+        return NO;
+    }
 }
 
 @end

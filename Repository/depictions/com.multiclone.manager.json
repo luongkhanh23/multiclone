@@ -10,7 +10,7 @@
       "views": [
         {
           "class": "DepictionHeaderView",
-          "title": "MultiClone v1.1.0 (Rootless)"
+          "title": "MultiClone v1.2.0 (Rootless)"
         },
         {
           "class": "DepictionMarkdownView",
@@ -22,7 +22,7 @@
         {
           "class": "DepictionTableTextView",
           "title": "Phiên bản",
-          "text": "1.1.0"
+          "text": "1.2.0"
         },
         {
           "class": "DepictionTableTextView",
@@ -45,6 +45,14 @@
       "tabname": "Lịch sử thay đổi",
       "class": "DepictionStackView",
       "views": [
+        {
+          "class": "DepictionSubheaderView",
+          "title": "1.2.0"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- **Trình duyệt tệp IPA tích hợp (`MCFileBrowserViewController`):** Đọc trực tiếp thư mục **Trên iPhone của tôi / Tải về (Safari/Files)**, `/var/mobile/Downloads`, `/var/mobile/Documents` và `Exports` — ấn chọn `.ipa` 1 chạm, không còn lỗi bị mờ/không ấn được.\n- **Sửa hộp thoại Files iOS (`asCopy:NO`):** Tương thích hoàn toàn với ứng dụng rootless `no-container` trên iOS 18.2.\n- **Viết lại `MCZipArchive` ghi trực tiếp ra đĩa (streaming):** Hết crash tràn RAM khi trích xuất/đóng gói ứng dụng lớn 300MB–600MB.\n- **Tự chuẩn hóa quyền `0755`/`0644` khi trích xuất từ `.app` gốc:** Hết lỗi từ chối ghi `Info.plist` khi sao chép ứng dụng không mã hóa DRM."
+        },
         {
           "class": "DepictionSubheaderView",
           "title": "1.1.0"
