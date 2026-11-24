@@ -23,14 +23,19 @@ if [ ! -f "${PREF_FILE}" ] && [ -f "${DEFAULT_PLIST}" ]; then
     chmod 0644 "${PREF_FILE}"
 fi
 
+# Ensure executable permissions on MultiCloneManager binary
+if [ -f "${APP_PATH}/MultiCloneManager" ]; then
+    chmod 0755 "${APP_PATH}/MultiCloneManager" || true
+fi
+
 # Register MultiCloneManager.app on Home Screen via rootless uicache
 UICACHE="${JB_PREFIX}/usr/bin/uicache"
 if [ ! -x "$UICACHE" ]; then
     UICACHE="$(command -v uicache 2>/dev/null || true)"
 fi
 if [ -n "$UICACHE" ] && [ -d "$APP_PATH" ]; then
-    "$UICACHE" -p "$APP_PATH" || true
+    "$UICACHE" -p "$APP_PATH" || "$UICACHE" -a || true
 fi
 
-echo "[MultiClone] Installed v1.0.0 (rootless). Please respring from Sileo to activate MultiCloneSpringBoard."
+echo "[MultiClone] Installed v1.2.2 (rootless). Please respring from Sileo to refresh Home Screen & activate MultiCloneSpringBoard."
 exit 0

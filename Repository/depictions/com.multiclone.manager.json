@@ -10,7 +10,7 @@
       "views": [
         {
           "class": "DepictionHeaderView",
-          "title": "MultiClone v1.2.0 (Rootless)"
+          "title": "MultiClone v1.2.2 (Rootless)"
         },
         {
           "class": "DepictionMarkdownView",
@@ -22,7 +22,7 @@
         {
           "class": "DepictionTableTextView",
           "title": "Phiên bản",
-          "text": "1.2.0"
+          "text": "1.2.2"
         },
         {
           "class": "DepictionTableTextView",
@@ -45,6 +45,14 @@
       "tabname": "Lịch sử thay đổi",
       "class": "DepictionStackView",
       "views": [
+        {
+          "class": "DepictionSubheaderView",
+          "title": "1.2.2"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- **Sửa dứt điểm lỗi crash ngay khi mở app trên iPhone 11 (A13) / iOS 18.2:** Biên dịch `MultiCloneManager` thuần kiến trúc `arm64` (loại bỏ slice `arm64e` ABI cũ gây XNU/AMFI kill trên A12+).\n- **Sửa lỗi không hiển thị biểu tượng app trên màn hình chính:** Khôi phục bộ 5 entitlements chuẩn Dopamine rootless, đóng gói `Info.plist` & icon trong `Resources/` trước khi ký `ldid` và bổ sung dự phòng `uicache -a` trong `postinst`."
+        },
         {
           "class": "DepictionSubheaderView",
           "title": "1.2.0"

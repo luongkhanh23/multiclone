@@ -9,7 +9,7 @@
         NSString *bundleID = NSBundle.mainBundle.bundleIdentifier;
         if ([bundleID isEqualToString:@"com.apple.springboard"]) {
             MCInstallAutoCloseObserver();
-            NSLog(@"[MultiClone] SpringBoard module v1.2.0 loaded (rootless); auto-close & health observers ready.");
+            NSLog(@"[MultiClone] SpringBoard module v1.2.2 loaded (rootless); auto-close & health observers ready.");
         }
     }
 }

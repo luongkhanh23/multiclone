@@ -11,10 +11,10 @@ Replaces: com.multiclone.core
 SileoDepiction: https://luongkhanh23.github.io/multiclone/depictions/com.multiclone.manager.json
 Icon: https://luongkhanh23.github.io/multiclone/CydiaIcon.png
 Architecture: iphoneos-arm64
-Version: 1.2.0
+Version: 1.2.1
 Installed-Size: 1196
 Filename: debs/MultiClone.deb
-Size: 195582
-MD5sum: 834acbf3c0675b16a4a7eb68e7ba1f55
-SHA1: 9f946098127cfc4800a85bf7bc35a08ba22e76cf
-SHA256: eb3717b0c0a8e6880290fa443ea8630ed97ffaa5f6ba18ac895e15c226fdb1ee
+Size: 198280
+MD5sum: dab54337fd2eef40c2c238bee9ddb372
+SHA1: 2859f419dbaf89931013852b15d692300bf4de3c
+SHA256: 7da5b3849dd161381fb3f7593631201c5cc2d7732815f7c809ef8de10b3b0dbe

@@ -102,8 +102,11 @@ class MultiCloneProjectVerificationTests(unittest.TestCase):
         for rel in ["Makefile", "Tweak/MultiCloneSpringBoard/Makefile", "Manager/MultiCloneManager/Makefile"]:
             text = (ROOT / rel).read_text(encoding="utf-8")
             self.assertIn("THEOS_PACKAGE_SCHEME = rootless", text, f"Missing rootless scheme in {rel}")
-            self.assertIn("arm64 arm64e", text, f"Missing arm64/arm64e ARCHS in {rel}")
+            self.assertIn("arm64", text, f"Missing arm64 ARCHS in {rel}")
             self.assertIn("common.mk", text, f"Missing common.mk include in {rel}")
+        # Tweak must include both arm64 and arm64e for SpringBoard injection on A12+ (iPhone 11)
+        tweak_mk = (ROOT / "Tweak/MultiCloneSpringBoard/Makefile").read_text(encoding="utf-8")
+        self.assertIn("arm64 arm64e", tweak_mk)
 
         # Verify every listed .m/.xm file in subproject Makefiles actually exists
         for rel in ["Tweak/MultiCloneSpringBoard/Makefile", "Manager/MultiCloneManager/Makefile"]:

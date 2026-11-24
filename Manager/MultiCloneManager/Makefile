@@ -1,5 +1,7 @@
 THEOS_PACKAGE_SCHEME = rootless
-ARCHS = arm64 arm64e
+# Pure arm64 runs natively on all arm64 & arm64e devices (including iPhone 11 A13 / iOS 18.2)
+# and avoids any arm64e PAC ABI launch crashes on iOS 18.2.
+override ARCHS = arm64
 TARGET = iphone:clang:latest:15.0
 
 include $(THEOS)/makefiles/common.mk
